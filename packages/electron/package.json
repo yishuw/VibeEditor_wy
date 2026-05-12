@@ -1,0 +1,32 @@
+{
+  "name": "@vibeeditor/electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VibeEditor Electron desktop app",
+  "main": "./dist/main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "tsc",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "@vibeeditor/core": "0.1.0",
+    "electron": "^28.3.3"
+  },
+  "devDependencies": {
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.vibeeditor.app",
+    "productName": "VibeEditor",
+    "directories": {
+      "output": "out"
+    },
+    "files": [
+      "dist/**/*",
+      "../web/dist/**/*"
+    ]
+  }
+}

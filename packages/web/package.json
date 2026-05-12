@@ -1,0 +1,27 @@
+{
+  "name": "@vibeeditor/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VibeEditor web frontend - Vue 3 + Monaco Editor",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "vue-tsc -b",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vibeeditor/core": "0.1.0",
+    "monaco-editor": "^0.45.0",
+    "pinia": "^2.1.7",
+    "splitpanes": "^3.1.5",
+    "vue": "^3.4.15"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitejs/plugin-vue": "^5.0.3",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12",
+    "vue-tsc": "^2.2.12"
+  }
+}

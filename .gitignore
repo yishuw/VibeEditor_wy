@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+*.tsbuildinfo
+.DS_Store
+thumbs.db
+
+# Electron build
+packages/electron/out/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
