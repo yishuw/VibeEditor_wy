@@ -23,3 +23,6 @@ interface Window {
     onMenuAction: (callback: (action: string) => void) => void;
   };
 }
+
+declare function showDirectoryPicker(options?: { mode?: 'read' | 'readwrite' }): Promise<FileSystemDirectoryHandle>;
+declare function showOpenFilePicker(options?: { multiple?: boolean }): Promise<FileSystemFileHandle[]>;

@@ -1,8 +1,11 @@
 <template>
   <div class="main-layout">
     <Toolbar
-      @open-folder="fs.openFolderDialog"
-      @open-file="fs.openFileDialog"
+      :env="fs.env"
+      :workspace-mode="store.workspaceMode"
+      @open-folder="handleOpenFolder"
+      @connect-server="handleConnectServer"
+      @open-local-file="fs.openLocalFile"
       @save="fs.saveCurrentFile"
       @new-file="store.newUntitled"
       @toggle-agent="showAgent = !showAgent"
@@ -12,7 +15,13 @@
         <FileTree
           :nodes="store.fileTreeNodes"
           :workspace-root="store.workspaceRoot"
+          :workspace-mode="store.workspaceMode"
+          :loading="fs.isLoading"
+          :expanded-dirs="expandedDirs"
+          :loading-dirs="loadingDirs"
+          :dir-children="dirChildren"
           @select-file="fs.openAndReadFile"
+          @expand-dir="handleExpandDir"
         />
       </div>
       <div class="resize-handle" @mousedown="startResize"></div>
@@ -39,7 +48,27 @@
             @content-change="(c: string) => store.updateContent(store.activeTab!.id, c)"
           />
           <div v-else class="editor-placeholder">
-            <p>Open a file or folder to get started</p>
+            <div class="placeholder-content">
+              <p class="placeholder-title">VibeEditor</p>
+              <p class="placeholder-hint">Open a folder or file to get started</p>
+              <div class="placeholder-actions">
+                <button class="placeholder-btn" @click="fs.openFolderDialog">📂 Open Folder</button>
+                <button
+                  v-if="fs.env.value === 'browser' || fs.env.value === 'server'"
+                  class="placeholder-btn"
+                  @click="fs.connectToServer"
+                >
+                  🌐 Browse Server
+                </button>
+                <button
+                  v-if="fs.env.value === 'browser'"
+                  class="placeholder-btn"
+                  @click="fs.openLocalFile"
+                >
+                  📄 Open File
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -64,7 +93,44 @@ const fs = useFileSystem();
 
 const showAgent = ref(false);
 const sidebarWidth = ref(260);
+const expandedDirs = ref(new Set<string>());
+const loadingDirs = ref(new Set<string>());
+const dirChildren = ref<Record<string, any[]>>({});
 let isResizing = false;
+
+function clearDirState() {
+  expandedDirs.value = new Set();
+  loadingDirs.value = new Set();
+  dirChildren.value = {};
+}
+
+async function handleOpenFolder() {
+  clearDirState();
+  await fs.openFolderDialog();
+}
+
+async function handleConnectServer() {
+  clearDirState();
+  await fs.connectToServer();
+}
+
+async function handleExpandDir(dirPath: string) {
+  const s = new Set(expandedDirs.value);
+  if (s.has(dirPath)) {
+    s.delete(dirPath);
+    expandedDirs.value = s;
+    return;
+  }
+  s.add(dirPath);
+  expandedDirs.value = s;
+
+  loadingDirs.value = new Set([...loadingDirs.value, dirPath]);
+  try {
+    const entries = await fs.client.value.readDir(dirPath);
+    dirChildren.value = { ...dirChildren.value, [dirPath]: entries };
+  } catch { /* ignore */ }
+  loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
+}
 
 function startResize(e: MouseEvent) {
   isResizing = true;
@@ -166,8 +232,38 @@ function startResize(e: MouseEvent) {
   align-items: center;
   justify-content: center;
   height: 100%;
+}
+.placeholder-content {
+  text-align: center;
+}
+.placeholder-title {
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.placeholder-hint {
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+.placeholder-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.placeholder-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.placeholder-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-color);
 }
 .agent-sidebar {
   width: 350px;
