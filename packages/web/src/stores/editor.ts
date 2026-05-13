@@ -12,6 +12,8 @@ export interface EditorTab {
   isUntitled: boolean;
 }
 
+export type WorkspaceMode = 'local' | 'server';
+
 let tabCounter = 0;
 
 function getLanguageFromPath(filePath: string): string {
@@ -32,6 +34,7 @@ export const useEditorStore = defineStore('editor', () => {
   const activeTabId = ref<string | null>(null);
   const fileTreeNodes = ref<any[]>([]);
   const workspaceRoot = ref<string>('');
+  const workspaceMode = ref<WorkspaceMode>('server');
 
   const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value) ?? null);
 
@@ -104,7 +107,7 @@ export const useEditorStore = defineStore('editor', () => {
   };
 
   return {
-    tabs, activeTabId, activeTab, fileTreeNodes, workspaceRoot,
+    tabs, activeTabId, activeTab, fileTreeNodes, workspaceRoot, workspaceMode,
     openFile, newUntitled, closeTab, updateContent, saveTab, setActiveTab,
   };
 });
