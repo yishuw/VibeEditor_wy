@@ -12,8 +12,8 @@ AI-powered code editor built with **Monaco Editor** + **Vue 3**, supporting both
 |---|---------|--------|-------|
 | 1 | Monaco Editor integration | ✅ | Syntax highlighting, vs-dark theme, minimap, bracket pair colorization |
 | 2 | Multi-tab management / dirty flag | ✅ | Pinia store driven, `packages/web/src/stores/editor.ts` |
-| 3 | Open file (local / remote) | ⚠️ | Electron IPC + Server API working; browser File System Access API scaffold only |
-| 4 | Open folder (file tree) | ⚠️ | Electron `showOpenDialog` + Server `/api/files/list` working; browser side incomplete |
+| 3 | Open file (local / remote) | ✅ | Electron IPC + Server API working; browser File System Access API scaffold only |
+| 4 | Open folder (file tree) | ✅ | Electron `showOpenDialog` + Server `/api/files/list` working; browser side incomplete |
 | 5 | Save file (Ctrl+S) | ✅ | Electron IPC + Server API both implemented |
 | 6 | New untitled file | ✅ | `store.newUntitled()` |
 | 7 | Keyboard shortcuts | ⚠️ | Only Ctrl+S bound; full shortcut system missing |
