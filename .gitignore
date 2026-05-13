@@ -14,3 +14,6 @@ packages/electron/out/
 
 # Logs
 *.log
+
+# Agent instructions (generated, not committed)
+AGENTS.md
