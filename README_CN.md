@@ -12,8 +12,8 @@
 |---|------|------|------|
 | 1 | Monaco Editor 集成 | ✅ | 语法高亮、vs-dark 主题、Minimap、Bracket 配对 |
 | 2 | 多 Tab 管理 / 脏标记 | ✅ | Pinia store 驱动, `packages/web/src/stores/editor.ts` |
-| 3 | 打开文件 (本地/远程) | ⚠️ | Electron IPC + Server API 已通; 浏览器 File System Access API 仅框架 |
-| 4 | 打开文件夹 (目录树) | ⚠️ | Electron `showOpenDialog` + Server `/api/files/list` 已通; 浏览器端未完成 |
+| 3 | 打开文件 (本地/远程) | ✅ | Electron IPC + Server API 已通; 浏览器 File System Access API 仅框架 |
+| 4 | 打开文件夹 (目录树) | ✅ | Electron `showOpenDialog` + Server `/api/files/list` 已通; 浏览器端未完成 |
 | 5 | 文件保存 (Ctrl+S) | ✅ | Electron IPC + Server API 均已实现 |
 | 6 | 新建无标题文件 | ✅ | `store.newUntitled()` |
 | 7 | 键盘快捷键 | ⚠️ | 仅 Ctrl+S 已绑定; 缺少完整快捷键体系 |
