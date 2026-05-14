@@ -1,7 +1,23 @@
 <template>
   <div class="agent-panel">
+    <!-- 提供商选择 + 设置按钮 -->
     <div class="agent-header">
-      <span class="agent-title">AI Agent</span>
+      <div class="header-left">
+        <select
+          class="provider-select"
+          :value="providerSettings.activeId.value"
+          @change="providerSettings.setActive(($event.target as HTMLSelectElement).value)"
+        >
+          <option
+            v-for="p in providerSettings.providers.value"
+            :key="p.id"
+            :value="p.id"
+          >
+            {{ p.name }} ({{ p.model }})
+          </option>
+        </select>
+        <button class="settings-btn" title="提供商设置" @click="showSettings = true">&#9881;</button>
+      </div>
       <div class="agent-mode-selector">
         <button
           v-for="mode in modes"
@@ -14,6 +30,8 @@
         </button>
       </div>
     </div>
+
+    <!-- 消息列表 -->
     <div class="agent-messages" ref="messagesContainer">
       <div v-if="agent.messages.value.length === 0" class="agent-empty">
         Ask the agent to help with editing
@@ -29,6 +47,8 @@
       </div>
       <div v-if="agent.isProcessing.value" class="agent-loading">Thinking...</div>
     </div>
+
+    <!-- 输入区域 -->
     <div class="agent-input-area">
       <textarea
         v-model="input"
@@ -41,23 +61,31 @@
         Send
       </button>
     </div>
+
+    <!-- 设置对话框 -->
+    <SettingsDialog :visible="showSettings" @close="showSettings = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
 import { useAgent } from '../../composables/useAgent';
+import { useProviderSettings } from '../../composables/useProviderSettings';
+import SettingsDialog from './SettingsDialog.vue';
 
 const agent = useAgent();
+const providerSettings = useProviderSettings();
 const input = ref('');
 const messagesContainer = ref<HTMLElement>();
 const modes = ['chat', 'edit', 'agent'] as const;
+const showSettings = ref(false);
 
 async function send() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  await agent.sendMessage(text);
+  // 传递当前激活的提供商配置，包含 apiUrl、apiKey、model
+  await agent.streamMessage(text, providerSettings.activeProvider.value);
   await nextTick();
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
@@ -76,12 +104,45 @@ async function send() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--border-color);
+  gap: 8px;
 }
-.agent-title {
-  font-size: 13px;
-  font-weight: 600;
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.provider-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  max-width: 160px;
+  font-family: inherit;
+}
+.provider-select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+.settings-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.settings-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-color);
 }
 .agent-mode-selector {
   display: flex;
