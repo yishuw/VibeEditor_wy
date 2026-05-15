@@ -78,6 +78,14 @@
         <AgentPanel @apply-edits="handleApplyEdits" />
       </div>
     </div>
+    <SaveDialog
+      v-if="showSaveDialog"
+      :client="fs.client.value"
+      :default-name="saveDialogDefaultName"
+      :workspace-root="store.workspaceRoot"
+      @confirm="onSaveDialogConfirm"
+      @cancel="onSaveDialogCancel"
+    />
   </div>
 </template>
 
@@ -90,6 +98,7 @@ import Toolbar from '../toolbar/Toolbar.vue';
 import FileTree from '../file-tree/FileTree.vue';
 import MonacoEditor from '../editor/MonacoEditor.vue';
 import AgentPanel from '../agent/AgentPanel.vue';
+import SaveDialog from '../SaveDialog.vue';
 
 const store = useEditorStore();
 const fs = useFileSystem();
@@ -102,6 +111,32 @@ const loadingDirs = ref(new Set<string>());
 const dirChildren = ref<Record<string, any[]>>({});
 let isResizingSidebar = false;
 let isResizingAgent = false;
+
+const showSaveDialog = ref(false);
+const saveDialogDefaultName = ref('');
+let saveDialogResolver: ((value: string | null) => void) | null = null;
+
+function handleSaveFileAs(): Promise<string | null> {
+  return new Promise((resolve) => {
+    saveDialogResolver = resolve;
+    saveDialogDefaultName.value = store.activeTab?.name || 'untitled';
+    showSaveDialog.value = true;
+  });
+}
+
+function onSaveDialogConfirm(path: string) {
+  showSaveDialog.value = false;
+  saveDialogResolver?.(path);
+  saveDialogResolver = null;
+}
+
+function onSaveDialogCancel() {
+  showSaveDialog.value = false;
+  saveDialogResolver?.(null);
+  saveDialogResolver = null;
+}
+
+fs.setSaveAsHandler(handleSaveFileAs);
 
 function clearDirState() {
   expandedDirs.value = new Set();
