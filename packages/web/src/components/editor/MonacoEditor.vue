@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as monaco from 'monaco-editor';
+import { setEditorInstance, clearEditorInstance } from '../../services/editorInstance';
 
 const props = defineProps<{
   content: string;
@@ -47,6 +48,7 @@ onMounted(() => {
     emit('content-change', editor!.getValue());
   });
 
+  setEditorInstance(editor);
   emit('editor-ready', editor);
 });
 
@@ -64,7 +66,7 @@ watch(() => props.content, (val) => {
 });
 
 onBeforeUnmount(() => {
-  editor?.dispose();
+  clearEditorInstance();
 });
 </script>
 

@@ -106,8 +106,18 @@ export const useEditorStore = defineStore('editor', () => {
     }
   };
 
+  const setTabPath = (tabId: string, newPath: string) => {
+    const tab = tabs.value.find(t => t.id === tabId);
+    if (tab) {
+      tab.path = newPath;
+      tab.name = newPath.split('/').pop() || newPath.split('\\').pop() || newPath;
+      tab.language = getLanguageFromPath(newPath);
+      tab.isUntitled = false;
+    }
+  };
+
   return {
     tabs, activeTabId, activeTab, fileTreeNodes, workspaceRoot, workspaceMode,
-    openFile, newUntitled, closeTab, updateContent, saveTab, setActiveTab,
+    openFile, newUntitled, closeTab, updateContent, saveTab, setActiveTab, setTabPath,
   };
 });

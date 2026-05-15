@@ -7,6 +7,7 @@ import {
   detectEnvironment,
   type FileServiceClient,
 } from '../services/fileService';
+import { getEditorInstance } from '../services/editorInstance';
 import { useEditorStore } from '../stores/editor';
 
 export function useFileSystem() {
@@ -18,6 +19,17 @@ export function useFileSystem() {
   const serverClient = ref<FileServiceClient | null>(null);
   const localClient = ref<FileServiceClient | null>(null);
   const env = detectEnvironment();
+
+  let saveAsHandler: (() => Promise<string | null>) | null = null;
+  let onAfterSave: (() => void) | null = null;
+
+  function setSaveAsHandler(handler: () => Promise<string | null>) {
+    saveAsHandler = handler;
+  }
+
+  function setOnAfterSave(callback: () => void) {
+    onAfterSave = callback;
+  }
 
   if (env === 'browser' || env === 'server') {
     serverClient.value = createServerClient();
@@ -61,12 +73,33 @@ export function useFileSystem() {
 
   async function saveCurrentFile() {
     const tab = store.activeTab;
-    if (!tab || tab.isUntitled) return;
+    if (!tab) return;
     error.value = null;
     try {
       const client = getClient();
-      await client.writeFile(tab.path, tab.content);
+      let savePath = tab.path;
+
+      if (tab.isUntitled) {
+        if (saveAsHandler) {
+          const newPath = await saveAsHandler();
+          if (!newPath) return;
+          savePath = newPath;
+        } else if (client.saveFileAs) {
+          const result = await client.saveFileAs(tab.path, tab.content);
+          if (!result) return;
+          savePath = result;
+        } else {
+          const name = prompt('Enter filename:', tab.name)?.trim();
+          if (!name) return;
+          savePath = name.replace(/\\/g, '/');
+        }
+        store.setTabPath(tab.id, savePath);
+      }
+
+      await client.writeFile(savePath, tab.content);
       store.saveTab(tab.id);
+      await loadDirectory('.');
+      onAfterSave?.();
     } catch (e: any) {
       error.value = e.message;
     }
@@ -143,6 +176,38 @@ export function useFileSystem() {
       e.preventDefault();
       saveCurrentFile();
     }
+
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      const editor = getEditorInstance();
+      if (!editor || !editor.hasTextFocus()) {
+        if (editor) {
+          const selection = editor.getSelection();
+          if (selection && !selection.isEmpty()) {
+            const model = editor.getModel();
+            if (model) {
+              const text = model.getValueInRange(selection);
+              navigator.clipboard.writeText(text).catch(() => {});
+            }
+          }
+        }
+      }
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      const editor = getEditorInstance();
+      if (!editor || !editor.hasTextFocus()) {
+        if (editor) {
+          e.preventDefault();
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              editor.executeEdits('clipboard-paste', [
+                { range: editor.getSelection()!, text },
+              ]);
+            }
+          }).catch(() => {});
+        }
+      }
+    }
   };
 
   onMounted(() => window.addEventListener('keydown', handleKeydown));
@@ -161,5 +226,7 @@ export function useFileSystem() {
     openLocalFolder,
     openLocalFile,
     connectToServer,
+    setSaveAsHandler,
+    setOnAfterSave,
   };
 }

@@ -96,6 +96,17 @@ export function createServerClient(baseUrl = ''): FileServiceClient {
     },
     openFolder: async () => null,
     openFile: async () => null,
+    saveFileAs: async (filePath: string, content: string) => {
+      try {
+        await request('/api/files/write', {
+          method: 'POST',
+          body: JSON.stringify({ path: filePath, content }),
+        });
+        return filePath;
+      } catch {
+        return null;
+      }
+    },
   };
 }
 
