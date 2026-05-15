@@ -39,15 +39,40 @@ Current mode: ${config.mode}`;
       'You can include multiple <edit> blocks for multiple files. Explain your changes before or after the edit blocks.',
     ].join('\n'),
     agent: [
-      'You are in agent mode. You can autonomously make changes across multiple files. For each file you want to modify, output an edit block:',
+      'You are an autonomous coding agent. Your goal is to understand, plan, and execute code changes across multiple files.',
+      '',
+      '## Available Tools',
+      'You can use these tools by outputting XML blocks in your response:',
+      '',
+      '<read_file path="relative/path/to/file.ext"/>',
+      'Reads the full content of a file not currently in context. Use this to explore the codebase.',
+      '',
+      '<list_dir path="relative/dir"/>',
+      'Lists the contents of a directory. Use this to understand project structure.',
+      '',
+      '<search_code pattern="regex" [path="relative/dir" maxResults="20"]/>',
+      'Searches for a pattern in the codebase. Path is optional (defaults to root).',
       '',
       '<edit path="relative/path/to/file.ext">',
       '```language',
-      '// complete new file content here',
+      '// complete new file content',
       '```',
       '</edit>',
+      'Replaces the entire content of a file. Use this to make changes.',
       '',
-      'Explain your reasoning and plan before making edits. You can chain multiple edits.',
+      '## Workflow',
+      '1. **Think** — Analyze the user request and plan your approach',
+      '2. **Explore** — Read relevant files and search the codebase to understand the current state',
+      '3. **Plan** — Decide what changes are needed across which files',
+      '4. **Execute** — Output <edit> blocks with complete updated file content',
+      '5. **Explain** — Summarize what you changed and why',
+      '',
+      '## Rules',
+      '- Always read existing files before editing them',
+      '- Make minimal, focused changes. Do not rewrite entire files unnecessarily',
+      '- In edit blocks, provide COMPLETE file content, not diffs or partial content',
+      '- When reading files, request them one at a time for clarity',
+      '- You may use multiple tools in a single response (read + search + edit)',
     ].join('\n'),
   };
 
@@ -103,29 +128,32 @@ function buildMessages(config: AgentConfig, message: string, context: AgentConte
 export class OpenAILikeProvider implements IAgentProvider {
   readonly name = 'openai-compatible';
   readonly displayName = 'OpenAI Compatible';
-  private config: LLMConfig | null = null;
+  private llmConfig: LLMConfig | null = null;
+  private agentConfig: AgentConfig | null = null;
 
   async initialize(config: AgentConfig): Promise<void> {
-    this.config = getLLMConfig(config);
+    this.llmConfig = getLLMConfig(config);
+    this.agentConfig = config;
   }
 
   // 非流式发送消息：一次性返回完整回复
   async sendMessage(message: string, context: AgentContext): Promise<AgentMessage> {
-    if (!this.config) throw new Error('Provider not initialized');
+    if (!this.llmConfig) throw new Error('Provider not initialized');
 
-    const messages = buildMessages({ mode: 'chat' }, message, context);
+    const cfg = this.agentConfig || { mode: 'chat' as const };
+    const messages = buildMessages(cfg, message, context);
 
-    const response = await fetch(`${this.config.apiUrl}/chat/completions`, {
+    const response = await fetch(`${this.llmConfig.apiUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
+        'Authorization': `Bearer ${this.llmConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: this.config.model,
+        model: this.llmConfig.model,
         messages,
-        temperature: 0.3,
-        max_tokens: 4096,
+        temperature: cfg.temperature ?? 0.3,
+        max_tokens: cfg.maxTokens ?? 4096,
       }),
     });
 
@@ -152,21 +180,22 @@ export class OpenAILikeProvider implements IAgentProvider {
     context: AgentContext,
     onChunk: (chunk: string) => void
   ): Promise<AgentMessage> {
-    if (!this.config) throw new Error('Provider not initialized');
+    if (!this.llmConfig) throw new Error('Provider not initialized');
 
-    const messages = buildMessages({ mode: 'chat' }, message, context);
+    const cfg = this.agentConfig || { mode: 'chat' as const };
+    const messages = buildMessages(cfg, message, context);
 
-    const response = await fetch(`${this.config.apiUrl}/chat/completions`, {
+    const response = await fetch(`${this.llmConfig.apiUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
+        'Authorization': `Bearer ${this.llmConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: this.config.model,
+        model: this.llmConfig.model,
         messages,
-        temperature: 0.3,
-        max_tokens: 4096,
+        temperature: cfg.temperature ?? 0.3,
+        max_tokens: cfg.maxTokens ?? 4096,
         stream: true, // 启用流式模式
       }),
     });
@@ -221,6 +250,7 @@ export class OpenAILikeProvider implements IAgentProvider {
   }
 
   dispose(): void {
-    this.config = null;
+    this.llmConfig = null;
+    this.agentConfig = null;
   }
 }
