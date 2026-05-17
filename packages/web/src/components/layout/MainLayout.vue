@@ -8,24 +8,46 @@
       @open-local-file="fs.openLocalFile"
       @save="fs.saveCurrentFile"
       @new-file="store.newUntitled"
+      @new-folder="fs.createFolder"
+      @edit-cut="handleEditAction('cut')"
+      @edit-copy="handleEditAction('copy')"
+      @edit-paste="handleEditAction('paste')"
+      @edit-undo="handleEditAction('undo')"
+      @edit-redo="handleEditAction('redo')"
+      @edit-find="handleEditAction('find')"
+      @edit-replace="handleEditAction('replace')"
       @toggle-agent="showAgent = !showAgent"
+      @toggle-sidebar="toggleSidebar"
+      :sidebar-collapsed="sidebarCollapsed"
     />
     <div class="main-content">
-      <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
-        <FileTree
-          :nodes="store.fileTreeNodes"
-          :workspace-root="store.workspaceRoot"
-          :workspace-mode="store.workspaceMode"
-          :loading="fs.isLoading"
-          :expanded-dirs="expandedDirs"
-          :loading-dirs="loadingDirs"
-          :dir-children="dirChildren"
-          @select-file="fs.openAndReadFile"
-          @expand-dir="handleExpandDir"
-          @delete-file="fs.deleteFile"
-        />
+      <ActivityBar
+        :items="activityItems"
+        :active-id="activeActivity"
+        @select="onActivitySelect"
+      />
+      <div v-if="!sidebarCollapsed" class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+        <SideBar
+          :title="activeActivityTitle"
+          :sections="sidebarSections"
+        >
+          <template v-slot:explorer>
+            <FileTree
+              :nodes="store.fileTreeNodes"
+              :workspace-root="store.workspaceRoot"
+              :workspace-mode="store.workspaceMode"
+              :loading="fs.isLoading"
+              :expanded-dirs="expandedDirs"
+              :loading-dirs="loadingDirs"
+              :dir-children="dirChildren"
+              @select-file="fs.openAndReadFile"
+              @expand-dir="handleExpandDir"
+              @delete-file="fs.deleteFile"
+            />
+          </template>
+        </SideBar>
       </div>
-      <div class="resize-handle" @mousedown="startSidebarResize"></div>
+      <div v-if="!sidebarCollapsed" class="resize-handle" @mousedown="startSidebarResize"></div>
       <div class="editor-area">
         <div class="tabs-bar">
           <div
@@ -73,12 +95,15 @@
           </div>
         </div>
       </div>
-      <!-- Agent 面板拖拽手柄 -->
       <div v-if="showAgent" class="agent-resize-handle" @mousedown="startAgentResize"></div>
       <div v-if="showAgent" class="agent-sidebar" :style="{ width: agentWidth + 'px' }">
         <AgentPanel @apply-edits="handleApplyEdits" @undo-edits="undoLastEdits" />
       </div>
     </div>
+    <StatusBar
+      :active-tab="store.activeTab"
+      :workspace-mode="store.workspaceMode"
+    />
     <SaveDialog
       v-if="showSaveDialog"
       :client="fs.client"
@@ -96,22 +121,69 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, watch } from 'vue';
 import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
+import { getEditorInstance } from '../../services/editorInstance';
 import type { ParsedEdit } from '../../services/editParser';
 import Toolbar from '../toolbar/Toolbar.vue';
+import ActivityBar from './ActivityBar.vue';
+import type { ActivityItem } from './ActivityBar';
+import SideBar from './SideBar.vue';
+import type { SideBarSection } from './SideBar';
 import FileTree from '../file-tree/FileTree.vue';
 import MonacoEditor from '../editor/MonacoEditor.vue';
 import AgentPanel from '../agent/AgentPanel.vue';
 import SaveDialog from '../SaveDialog.vue';
+import StatusBar from '../StatusBar.vue';
 
 const store = useEditorStore();
 const fs = reactive(useFileSystem());
 
 const showAgent = ref(false);
 const sidebarWidth = ref(260);
+const sidebarCollapsed = ref(false);
+const sidebarSavedWidth = ref(260);
 const agentWidth = ref(350);
+const activeActivity = ref('explorer');
+
+const activityItems: ActivityItem[] = [
+  { id: 'explorer', label: 'Explorer (Ctrl+Shift+E)', icon: '🗋' },
+  { id: 'search', label: 'Search (Ctrl+Shift+F)', icon: '🔍' },
+  { id: 'source-control', label: 'Source Control (Ctrl+Shift+G)', icon: '⑂' },
+  { id: 'debug', label: 'Run and Debug (Ctrl+Shift+D)', icon: '🐞' },
+  { id: 'extensions', label: 'Extensions (Ctrl+Shift+X)', icon: '🧩' },
+];
+
+const activeActivityTitle = ref('EXPLORER');
+
+const sidebarSections = ref<SideBarSection[]>([
+  { id: 'explorer', label: 'EXPLORER', count: 0 },
+]);
+
+function onActivitySelect(id: string) {
+  if (activeActivity.value === id && !sidebarCollapsed.value) {
+    toggleSidebar();
+    return;
+  }
+  activeActivity.value = id;
+  const item = activityItems.find(i => i.id === id);
+  if (item) {
+    activeActivityTitle.value = item.label.replace(/\s*\(.*/, '').toUpperCase();
+  }
+  if (sidebarCollapsed.value) {
+    toggleSidebar();
+  }
+  if (id === 'explorer') {
+    sidebarSections.value = [
+      { id: 'explorer', label: 'EXPLORER', count: store.fileTreeNodes.length },
+    ];
+  } else {
+    sidebarSections.value = [
+      { id: 'placeholder', label: 'COMING SOON', count: undefined },
+    ];
+  }
+}
 const expandedDirs = ref(new Set<string>());
 const loadingDirs = ref(new Set<string>());
 const dirChildren = ref<Record<string, any[]>>({});
@@ -148,6 +220,17 @@ async function undoLastEdits() {
   lastEditedFiles.value = [];
 }
 
+function toggleSidebar() {
+  if (sidebarCollapsed.value) {
+    sidebarWidth.value = sidebarSavedWidth.value;
+    sidebarCollapsed.value = false;
+  } else {
+    sidebarSavedWidth.value = sidebarWidth.value;
+    sidebarWidth.value = 0;
+    sidebarCollapsed.value = true;
+  }
+}
+
 function handleSaveFileAs(): Promise<string | null> {
   return new Promise((resolve) => {
     saveDialogResolver = resolve;
@@ -168,8 +251,68 @@ function onSaveDialogCancel() {
   saveDialogResolver = null;
 }
 
+function handleEditAction(action: string) {
+  const editor = getEditorInstance();
+  if (!editor) return;
+  editor.focus();
+  switch (action) {
+    case 'undo':
+      editor.trigger('keyboard', 'undo', null);
+      break;
+    case 'redo':
+      editor.trigger('keyboard', 'redo', null);
+      break;
+    case 'find':
+      editor.getAction('actions.find')?.run();
+      break;
+    case 'replace':
+      editor.getAction('editor.action.startFindReplaceAction')?.run();
+      break;
+    case 'cut': {
+      const sel = editor.getSelection();
+      if (sel && !sel.isEmpty()) {
+        const model = editor.getModel();
+        if (model) {
+          const text = model.getValueInRange(sel);
+          navigator.clipboard.writeText(text).then(() => {
+            editor.executeEdits('cut', [{ range: sel, text: '' }]);
+          }).catch(() => {});
+        }
+      }
+      break;
+    }
+    case 'copy': {
+      const sel = editor.getSelection();
+      if (sel && !sel.isEmpty()) {
+        const model = editor.getModel();
+        if (model) {
+          const text = model.getValueInRange(sel);
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+      }
+      break;
+    }
+    case 'paste': {
+      navigator.clipboard.readText().then((text) => {
+        if (text) {
+          editor.executeEdits('paste', [{ range: editor.getSelection()!, text }]);
+        }
+      }).catch(() => {});
+      break;
+    }
+  }
+}
+
 fs.setSaveAsHandler(handleSaveFileAs);
 fs.setOnAfterSave(handleAfterSave);
+
+watch(() => store.fileTreeNodes.length, (count) => {
+  if (activeActivity.value === 'explorer' && sidebarSections.value[0]) {
+    sidebarSections.value = [
+      { id: 'explorer', label: 'EXPLORER', count },
+    ];
+  }
+});
 
 async function handleAfterSave(_savePath: string) {
   const dirsToReload = ['.', ...expandedDirs.value];
@@ -239,7 +382,7 @@ function startSidebarResize(e: MouseEvent) {
 
   const onMove = (ev: MouseEvent) => {
     if (!isResizingSidebar) return;
-    sidebarWidth.value = Math.max(150, Math.min(500, startWidth + (ev.clientX - startX)));
+    sidebarWidth.value = Math.max(200, Math.min(500, startWidth + (ev.clientX - startX)));
   };
 
   const onUp = () => {
@@ -252,7 +395,7 @@ function startSidebarResize(e: MouseEvent) {
   document.addEventListener('mouseup', onUp);
 }
 
-// Agent 面板宽度拖拽（向左拖拽手柄）
+// Agent 面板宽度拖拽
 function startAgentResize(e: MouseEvent) {
   isResizingAgent = true;
   const startX = e.clientX;
@@ -260,7 +403,6 @@ function startAgentResize(e: MouseEvent) {
 
   const onMove = (ev: MouseEvent) => {
     if (!isResizingAgent) return;
-    // 向左拖拽增加宽度，向右减小
     agentWidth.value = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX)));
   };
 
