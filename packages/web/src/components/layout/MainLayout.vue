@@ -22,6 +22,7 @@
           :dir-children="dirChildren"
           @select-file="fs.openAndReadFile"
           @expand-dir="handleExpandDir"
+          @delete-file="fs.deleteFile"
         />
       </div>
       <div class="resize-handle" @mousedown="startSidebarResize"></div>
@@ -54,14 +55,14 @@
               <div class="placeholder-actions">
                 <button class="placeholder-btn" @click="fs.openFolderDialog">📂 Open Folder</button>
                 <button
-                  v-if="fs.env.value === 'browser' || fs.env.value === 'server'"
+                  v-if="fs.env === 'browser' || fs.env === 'server'"
                   class="placeholder-btn"
                   @click="fs.connectToServer"
                 >
                   🌐 Browse Server
                 </button>
                 <button
-                  v-if="fs.env.value === 'browser'"
+                  v-if="fs.env === 'browser'"
                   class="placeholder-btn"
                   @click="fs.openLocalFile"
                 >
@@ -86,11 +87,16 @@
       @confirm="onSaveDialogConfirm"
       @cancel="onSaveDialogCancel"
     />
+    <div v-if="fs.showUndoNotification" class="undo-notification">
+      <span class="undo-text">Deleted {{ fs.lastDeleted?.path }}</span>
+      <button class="undo-btn" @click="fs.undoDelete()">Undo</button>
+      <button class="undo-dismiss" @click="fs.showUndoNotification = false">✕</button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, reactive } from 'vue';
 import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
 import type { ParsedEdit } from '../../services/editParser';
@@ -101,7 +107,7 @@ import AgentPanel from '../agent/AgentPanel.vue';
 import SaveDialog from '../SaveDialog.vue';
 
 const store = useEditorStore();
-const fs = useFileSystem();
+const fs = reactive(useFileSystem());
 
 const showAgent = ref(false);
 const sidebarWidth = ref(260);
@@ -137,7 +143,33 @@ function onSaveDialogCancel() {
 }
 
 fs.setSaveAsHandler(handleSaveFileAs);
-fs.setOnAfterSave(clearDirState);
+fs.setOnAfterSave(handleAfterSave);
+
+async function handleAfterSave(_savePath: string) {
+  const dirsToReload = ['.', ...expandedDirs.value];
+  const results = await Promise.all(
+    dirsToReload.map(async (dir) => {
+      try {
+        const entries = await fs.client.readDir(dir);
+        return { dir, entries };
+      } catch {
+        return { dir, entries: null };
+      }
+    })
+  );
+
+  const rootResult = results.find(r => r.dir === '.');
+  if (rootResult?.entries) {
+    store.fileTreeNodes = rootResult.entries;
+  }
+
+  const updates: Record<string, any[]> = { ...dirChildren.value };
+  for (const { dir, entries } of results) {
+    if (entries && dir !== '.') updates[dir] = entries;
+  }
+  dirChildren.value = updates;
+  loadingDirs.value = new Set();
+}
 
 function clearDirState() {
   expandedDirs.value = new Set();
@@ -167,7 +199,7 @@ async function handleExpandDir(dirPath: string) {
 
   loadingDirs.value = new Set([...loadingDirs.value, dirPath]);
   try {
-    const entries = await fs.client.value.readDir(dirPath);
+    const entries = await fs.client.readDir(dirPath);
     dirChildren.value = { ...dirChildren.value, [dirPath]: entries };
   } catch { /* ignore */ }
   loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
@@ -227,7 +259,7 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
           ? store.workspaceRoot.replace(/[\/\\]?$/, '/') + edit.path
           : edit.path;
 
-      await fs.client.value.writeFile(resolvedPath, edit.content);
+      await fs.client.writeFile(resolvedPath, edit.content);
 
       // 如果该文件已在编辑器中打开，更新标签页内容并标记为已保存
       const tab = store.tabs.find(t => t.path === resolvedPath);
@@ -365,5 +397,47 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 .agent-sidebar {
   flex-shrink: 0;
   border-left: 1px solid var(--border-color);
+}
+.undo-notification {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1001;
+  font-size: 13px;
+}
+.undo-text {
+  color: var(--text-primary);
+}
+.undo-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent-color);
+  color: #fff;
+}
+.undo-btn:hover {
+  opacity: 0.9;
+}
+.undo-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+}
+.undo-dismiss:hover {
+  color: var(--text-primary);
 }
 </style>

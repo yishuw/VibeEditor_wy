@@ -21,13 +21,17 @@ export function useFileSystem() {
   const env = detectEnvironment();
 
   let saveAsHandler: (() => Promise<string | null>) | null = null;
-  let onAfterSave: (() => void) | null = null;
+  let onAfterSave: ((savePath: string) => void) | null = null;
+
+  const lastDeleted = ref<{ path: string; content: string } | null>(null);
+  const showUndoNotification = ref(false);
+  let undoTimer: ReturnType<typeof setTimeout> | null = null;
 
   function setSaveAsHandler(handler: () => Promise<string | null>) {
     saveAsHandler = handler;
   }
 
-  function setOnAfterSave(callback: () => void) {
+  function setOnAfterSave(callback: (savePath: string) => void) {
     onAfterSave = callback;
   }
 
@@ -98,8 +102,54 @@ export function useFileSystem() {
 
       await client.writeFile(savePath, tab.content);
       store.saveTab(tab.id);
-      await loadDirectory('.');
-      onAfterSave?.();
+      onAfterSave?.(savePath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  async function deleteFile(filePath: string) {
+    error.value = null;
+    try {
+      const client = getClient();
+      let content = '';
+      try {
+        content = await client.readFile(filePath);
+      } catch { /* file may not exist */ }
+
+      await client.deleteFile(filePath);
+
+      const openTabs = store.tabs.filter(t => t.path === filePath);
+      for (const tab of openTabs) {
+        store.closeTab(tab.id);
+      }
+
+      lastDeleted.value = { path: filePath, content };
+      showUndoNotification.value = true;
+
+      if (undoTimer) clearTimeout(undoTimer);
+      undoTimer = setTimeout(() => {
+        showUndoNotification.value = false;
+        lastDeleted.value = null;
+      }, 10000);
+
+      onAfterSave?.(filePath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  async function undoDelete() {
+    if (!lastDeleted.value) return;
+    error.value = null;
+    try {
+      const client = getClient();
+      await client.writeFile(lastDeleted.value.path, lastDeleted.value.content);
+      const deleted = lastDeleted.value;
+      lastDeleted.value = null;
+      showUndoNotification.value = false;
+      if (undoTimer) clearTimeout(undoTimer);
+      onAfterSave?.(deleted.path);
     } catch (e: any) {
       error.value = e.message;
     }
@@ -226,6 +276,10 @@ export function useFileSystem() {
     openLocalFolder,
     openLocalFile,
     connectToServer,
+    deleteFile,
+    undoDelete,
+    lastDeleted,
+    showUndoNotification,
     setSaveAsHandler,
     setOnAfterSave,
   };

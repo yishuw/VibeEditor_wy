@@ -23,6 +23,7 @@
           <span v-else class="node-arrow-placeholder"></span>
           <span class="node-icon">{{ node.isDirectory ? '📁' : '📄' }}</span>
           <span class="node-name" :title="node.path">{{ node.name }}</span>
+          <span v-if="!node.isDirectory" class="node-delete" @click.stop="emit('delete-file', node.path)" title="Delete file">🗑</span>
         </div>
         <template v-if="expandedDirs.has(node.path) && node.isDirectory">
           <div v-if="loadingDirs.has(node.path)" class="tree-node" style="padding-left: 24px">
@@ -40,6 +41,7 @@
               <span v-else class="node-arrow-placeholder"></span>
               <span class="node-icon">{{ child.isDirectory ? '📁' : '📄' }}</span>
               <span class="node-name" :title="child.path">{{ child.name }}</span>
+              <span v-if="!child.isDirectory" class="node-delete" @click.stop="emit('delete-file', child.path)" title="Delete file">🗑</span>
             </div>
             <template v-if="expandedDirs.has(child.path) && child.isDirectory">
               <div v-if="loadingDirs.has(child.path)" class="tree-node" style="padding-left: 40px">
@@ -54,6 +56,7 @@
               >
                 <span class="node-icon">{{ sub.isDirectory ? '📁' : '📄' }}</span>
                 <span class="node-name" :title="sub.path">{{ sub.name }}</span>
+                <span v-if="!sub.isDirectory" class="node-delete" @click.stop="emit('delete-file', sub.path)" title="Delete file">🗑</span>
               </div>
             </template>
           </template>
@@ -79,6 +82,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'select-file': [path: string];
   'expand-dir': [path: string];
+  'delete-file': [path: string];
 }>();
 
 function handleNodeClick(node: any) {
@@ -162,6 +166,22 @@ function handleNodeClick(node: any) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+.node-delete {
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0;
+  visibility: hidden;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.tree-node:hover .node-delete {
+  opacity: 1;
+  visibility: visible;
+}
+.node-delete:hover {
+  color: #f44747;
 }
 .node-loading {
   color: var(--text-secondary);
