@@ -18,3 +18,4 @@ packages/electron/out/
 # Agent instructions (generated, not committed)
 AGENTS.md
 CLAUDE.md
+.claude/
