@@ -1,4 +1,4 @@
-import type { AgentConfig } from '@vibeeditor/core';
+import type { AgentConfig } from '@vibeeditor/agent';
 
 export type { AgentConfig };
 
@@ -17,20 +17,6 @@ export interface StreamEvent {
   content?: string;
 }
 
-/**
- * 创建 Agent API 服务
- *
- * 提供两种通信方式与 server 端 /api/agent 端点交互：
- * - sendMessage():  普通请求-响应（POST /api/agent/chat），适用于 plan 模式
- * - streamMessage(): SSE 流式请求（POST /api/agent/stream），适用于 build/plan 模式
- *
- * SSE 事件类型（由 server 端 writeSSE 发出）：
- *   data: {"chunk": "..."}         token 增量文本
- *   data: {"tool_start": "..."}    工具开始执行（仅 build 模式）
- *   data: {"tool_end": "..."}      工具执行完成（仅 build 模式）
- *   data: {"done": true}           对话结束
- *   data: {"error": "..."}         发生错误
- */
 export function createAgentService(baseUrl = '') {
   return {
     async sendMessage(message: string, context: Record<string, unknown>, config: AgentConfig): Promise<AgentMessage> {
@@ -70,17 +56,15 @@ export function createAgentService(baseUrl = '') {
 
       const decoder = new TextDecoder();
       let fullContent = '';
-      let buffer = ''; // 拼接不完整的 SSE 行（跨 chunk 断行）
+      let buffer = '';
 
-      // 逐块读取 SSE 流，按行解析 data: 前缀的 JSON 事件
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        // 解码新收到的数据并追加到缓冲区
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n');
-        buffer = parts.pop() || ''; // 最后一行可能不完整，留到下次处理
+        buffer = parts.pop() || '';
 
         for (const line of parts) {
           if (!line.startsWith('data: ')) continue;
@@ -89,7 +73,6 @@ export function createAgentService(baseUrl = '') {
             if (data.error) throw new Error(data.error);
             if (data.done) break;
 
-            // 工具事件回调（仅 build 模式 AgentLoop 发出）
             if (data.tool_start && onEvent) {
               onEvent({ type: 'tool_start', message: data.tool_start });
             } else if (data.tool_end && onEvent) {
@@ -98,13 +81,12 @@ export function createAgentService(baseUrl = '') {
               onEvent({ type: 'tool_result', content: data.tool_result });
             }
 
-            // token 增量回调
             if (data.chunk) {
               fullContent += data.chunk;
               onChunk(data.chunk);
             }
           } catch {
-            // 跳过解析失败的 SSE 行（空行、格式异常等）
+            // skip unparseable SSE lines
           }
         }
       }

@@ -1,10 +1,10 @@
 import { ref } from 'vue';
 import { createAgentService } from '../services/agentService';
 import type { AgentConfig, StreamEvent } from '../services/agentService';
-import type { AgentContext } from '@vibeeditor/core';
+import type { AgentContext } from '@vibeeditor/agent';
 import type { ProviderConfig } from './useProviderSettings';
 import type { FileServiceClient } from '../services/fileService';
-import { parseEditsFromText, type ParsedEdit } from '../services/editParser';
+import { parseEditsFromText, type ParsedEdit } from '@vibeeditor/agent';
 import { runLocalAgentLoop } from '../services/localAgentLoop';
 import { useEditorStore } from '../stores/editor';
 import { getEditorInstance } from '../services/editorInstance';
@@ -18,7 +18,6 @@ export interface ChatMessage {
   editOperations?: ParsedEdit[];
 }
 
-/** 从文件树节点中收集所有非目录文件的路径（扁平化为路径字符串数组） */
 function collectFileTreePaths(entries: any[], basePath: string): string[] {
   const paths: string[] = [];
   for (const entry of entries) {
@@ -29,17 +28,6 @@ function collectFileTreePaths(entries: any[], basePath: string): string[] {
   return paths;
 }
 
-/**
- * 构建 Agent 上下文
- *
- * 从编辑器 store 和 Monaco 实例收集：
- * - openFiles:     所有已打开 Tab 的路径 + 完整内容
- * - fileTree:      项目文件树的扁平路径列表（不含目录）
- * - cursorPosition: 当前光标位置（file:line:column），从 Monaco editor.getPosition() 获取
- * - selection:      当前文本选区（file + text + 起止行号），从 editor.getSelection() 获取
- *
- * @param activeFilePath - 当前活动文件的路径，作为光标和选区所属的文件
- */
 function buildAgentContext(activeFilePath?: string): AgentContext {
   const store = useEditorStore();
   const editor = getEditorInstance();
@@ -73,16 +61,9 @@ function buildAgentContext(activeFilePath?: string): AgentContext {
     }
   }
 
-  return { openFiles, fileTree, cursorPosition, selection, conversationHistory: [] as AgentContext['conversationHistory'] };
+  return { openFiles, fileTree, cursorPosition, selection, conversationHistory: [] };
 }
 
-/**
- * Agent 聊天状态 composable
- *
- * 管理消息列表、处理状态、模式配置和编辑结果。
- * 支持非流式（sendMessage）和流式（streamMessage）两种通信方式。
- * 流式模式下根据 workspaceMode 自动选择 local 或 server 路径。
- */
 export function useAgent() {
   const messages = ref<ChatMessage[]>([]);
   const isProcessing = ref(false);
@@ -91,7 +72,6 @@ export function useAgent() {
   const lastEdits = ref<ParsedEdit[]>([]);
   const toolStatus = ref<string>('');
 
-  /** 将 ProviderConfig 合并到 AgentConfig */
   function buildRequestConfig(provider?: ProviderConfig | null): AgentConfig {
     const cfg: AgentConfig = { ...config.value };
     if (provider) {
@@ -102,7 +82,6 @@ export function useAgent() {
     return cfg;
   }
 
-  /** 从消息中提取编辑操作（仅 build 模式生效） */
   function extractEdits(msg: ChatMessage) {
     if (config.value.mode === 'build') {
       const edits = parseEditsFromText(msg.content);
@@ -113,7 +92,6 @@ export function useAgent() {
     }
   }
 
-  /** 非流式发送消息 */
   async function sendMessage(content: string, provider?: ProviderConfig | null, activeFilePath?: string) {
     const userMsg: ChatMessage = {
       id: `msg_${Date.now()}`,
@@ -147,19 +125,6 @@ export function useAgent() {
     }
   }
 
-  /**
-   * 流式发送消息
-   *
-   * 根据 workspaceMode 分发到不同的实现：
-   * - 'local' + localClient 存在 → runLocalAgentLoop（浏览器端直接调 LLM + 工具循环）
-   * - 其他 → agentService.streamMessage（HTTP SSE 到 server 端）
-   *
-   * 流式过程中：
-   * - 创建一个空的 assistant 消息占位，内容逐步填充
-   * - onChunk 回调将每个 token 增量追加到占位消息的 content
-   * - onToolStart/onToolEnd 更新 toolStatus 提示
-   * - 流式完成后调用 extractEdits 解析 <edit> 块
-   */
   async function streamMessage(
     content: string,
     provider?: ProviderConfig | null,
@@ -178,7 +143,6 @@ export function useAgent() {
     lastEdits.value = [];
     toolStatus.value = '';
 
-    // 先创建空的助手消息占位，流式内容逐步填充
     const assistantMsgId = `msg_${Date.now() + 1}`;
     messages.value.push({
       id: assistantMsgId,
@@ -195,7 +159,6 @@ export function useAgent() {
       const history = messages.value.slice(0, -1).filter(m => m.id !== assistantMsgId);
 
       if (store.workspaceMode === 'local' && localClient) {
-        // 本地 Agent 循环模式：浏览器端直接调 LLM，工具调用走 FileServiceClient
         const fullContent = await runLocalAgentLoop(
           localClient,
           buildRequestConfig(provider),
@@ -212,15 +175,13 @@ export function useAgent() {
           }
         );
 
-        // runLocalAgentLoop 返回完整内容，直接覆盖占位消息
         const msg = messages.value.find(m => m.id === assistantMsgId);
         if (msg) msg.content = fullContent;
       } else {
-        // 服务端 SSE 流式模式：HTTP POST → server AgentLoop → SSE 回推
         const streamCtx = {
           ...ctx,
           conversationHistory: history,
-          workspaceRoot: store.workspaceRoot || undefined, // server 端 build 模式需要
+          workspaceRoot: store.workspaceRoot || undefined,
         };
         await service.streamMessage(
           content,
