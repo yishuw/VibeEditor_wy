@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
+/** 决定使用哪个渲染器来展示标签页内容 */
+export type ViewMode = 'code' | 'docx';
+
 /** 编辑器标签页 —— 代表一个打开的文件 */
 export interface EditorTab {
   id: string;
@@ -11,6 +14,7 @@ export interface EditorTab {
   originalContent: string;
   isDirty: boolean;
   isUntitled: boolean;
+  viewMode: ViewMode;
 }
 
 /** 工作区模式 */
@@ -30,6 +34,13 @@ function getLanguageFromPath(filePath: string): string {
     vue: 'html', svg: 'xml',
   };
   return map[ext || ''] || 'plaintext';
+}
+
+/** 根据文件扩展名决定使用哪个渲染器 */
+function getViewModeFromPath(filePath: string): ViewMode {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  if (ext === 'docx' || ext === 'doc') return 'docx';
+  return 'code';
 }
 
 /**
@@ -65,6 +76,7 @@ export const useEditorStore = defineStore('editor', () => {
       originalContent: content,
       isDirty: false,
       isUntitled: false,
+      viewMode: getViewModeFromPath(filePath),
     };
     tabs.value.push(tab);
     activeTabId.value = id;
@@ -82,6 +94,7 @@ export const useEditorStore = defineStore('editor', () => {
       originalContent: '',
       isDirty: false,
       isUntitled: true,
+      viewMode: 'code',
     };
     tabs.value.push(tab);
     activeTabId.value = id;
@@ -129,6 +142,7 @@ export const useEditorStore = defineStore('editor', () => {
       tab.path = newPath;
       tab.name = newPath.split('/').pop() || newPath.split('\\').pop() || newPath;
       tab.language = getLanguageFromPath(newPath);
+      tab.viewMode = getViewModeFromPath(newPath);
       tab.isUntitled = false;
     }
   };

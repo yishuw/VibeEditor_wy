@@ -37,6 +37,12 @@ export function registerFileHandlers(ipcMain: IpcMain, dialog: Dialog) {
     return fs.readFile(p, 'utf-8');
   });
 
+  ipcMain.handle('file:readBuffer', async (_e, filePath: string) => {
+    const p = resolvePath(filePath);
+    const buffer = await fs.readFile(p);
+    return buffer.toString('base64');
+  });
+
   ipcMain.handle('file:write', async (_e, filePath: string, content: string) => {
     const p = resolvePath(filePath);
     await fs.mkdir(path.dirname(p), { recursive: true });
@@ -120,9 +126,7 @@ export function registerFileHandlers(ipcMain: IpcMain, dialog: Dialog) {
       filters: [{ name: 'All Files', extensions: ['*'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    const filePath = result.filePaths[0];
-    const content = await fs.readFile(filePath, 'utf-8');
-    return { path: filePath, content };
+    return { path: result.filePaths[0] };
   });
 
   ipcMain.handle('dialog:saveFile', async (_e, filePath: string, content: string) => {

@@ -104,14 +104,33 @@ export function useFileSystem() {
     }
   }
 
+  /** ArrayBuffer → base64 字符串 */
+  function arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
   /** 读取文件并在编辑器中打开为标签页 */
   async function openAndReadFile(filePath: string) {
     isLoading.value = true;
     error.value = null;
     try {
       const client = getClient();
-      const content = await client.readFile(filePath);
-      store.openFile(filePath, content);
+      const ext = filePath.split('.').pop()?.toLowerCase();
+
+      if (ext === 'docx') {
+        const buffer = await client.readFileBuffer(filePath);
+        store.openFile(filePath, arrayBufferToBase64(buffer));
+      } else if (ext === 'doc') {
+        store.openFile(filePath, '');
+      } else {
+        const content = await client.readFile(filePath);
+        store.openFile(filePath, content);
+      }
     } catch (e: any) {
       error.value = e.message;
     } finally {
@@ -123,6 +142,10 @@ export function useFileSystem() {
   async function saveCurrentFile() {
     const tab = store.activeTab;
     if (!tab) return;
+    if (tab.viewMode !== 'code') {
+      error.value = 'Cannot save document previews';
+      return;
+    }
     error.value = null;
     try {
       const client = getClient();
@@ -246,8 +269,17 @@ export function useFileSystem() {
     error.value = null;
     try {
       const result = await pickLocalFile();
-      if (result) {
-        store.openFile(result.path, result.content);
+      if (!result) return;
+      const ext = result.path.split('.').pop()?.toLowerCase();
+
+      if (ext === 'docx') {
+        const buffer = await result.file.arrayBuffer();
+        store.openFile(result.path, arrayBufferToBase64(buffer));
+      } else if (ext === 'doc') {
+        store.openFile(result.path, '');
+      } else {
+        const text = await result.file.text();
+        store.openFile(result.path, text);
       }
     } catch (e: any) {
       error.value = e.message;
@@ -349,7 +381,7 @@ export function useFileSystem() {
       const client = getClient();
       const result = await client.openFile();
       if (result) {
-        store.openFile(result.path, result.content);
+        await openAndReadFile(result.path);
       }
     } else if (env === 'browser') {
       await openLocalFile();
