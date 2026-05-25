@@ -126,7 +126,7 @@
             <div class="placeholder-content">
               <p class="placeholder-title">{{ $t('placeholder.title') }}</p>
               <p class="placeholder-hint">{{ $t('placeholder.hint') }}</p>
-              <div class="placeholder-actions">
+              <div v-if="store.fileTreeNodes.length === 0" class="placeholder-actions">
                 <button class="placeholder-btn" @click="fs.openFolderDialog">{{ $t('placeholder.openFolder') }}</button>
                 <button
                   v-if="fs.env === 'browser' || fs.env === 'server'"
