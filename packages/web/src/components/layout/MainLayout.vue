@@ -416,17 +416,23 @@ async function handleAfterSave(_savePath: string) {
   const results = await Promise.all(
     dirsToReload.map(async (dir) => {
       try {
-        const entries = await fs.client.readDir(dir);
-        return { dir, entries };
+        const entries = await fs.readDirForPath(dir);
+        const displayRoot = dir.startsWith('__root__') ? dir.slice(8) : dir;
+        const resolved = entries.map((e: any) => ({ ...e, path: displayRoot.replace(/\/$/, '') + '/' + e.path }));
+        return { dir, entries: resolved };
       } catch {
         return { dir, entries: null };
       }
     })
   );
 
-  const rootResult = results.find(r => r.dir === '.');
-  if (rootResult?.entries) {
-    store.fileTreeNodes = rootResult.entries;
+  if (store.workspaceRoots.length > 0) {
+    await fs.loadDirectory('.');
+  } else {
+    const rootResult = results.find(r => r.dir === '.');
+    if (rootResult?.entries) {
+      store.fileTreeNodes = rootResult.entries;
+    }
   }
 
   const updates: Record<string, any[]> = { ...dirChildren.value };
@@ -496,8 +502,6 @@ async function handleDrop(e: DragEvent) {
   const opened = await fs.openDroppedFolder(dataTransfer);
   if (!opened) return;
 
-  // A successful drop replaces the workspace, so reset tree expansion state.
-  clearDirState();
   activeActivity.value = 'explorer';
   activeActivityTitle.value = t('sidebar.explorer');
   sidebarSections.value = [
@@ -523,8 +527,11 @@ async function handleExpandDir(dirPath: string) {
 
   loadingDirs.value = new Set([...loadingDirs.value, dirPath]);
   try {
-    const entries = await fs.client.readDir(dirPath);
-    dirChildren.value = { ...dirChildren.value, [dirPath]: entries };
+    const entries = await fs.readDirForPath(dirPath);
+    // 多工作区：子条目路径拼接完整前缀（去除 __root__ 后拼接），保证 resolveClient 能匹配
+    const displayRoot = dirPath.startsWith('__root__') ? dirPath.slice(8) : dirPath;
+    const resolved = entries.map((e: any) => ({ ...e, path: displayRoot.replace(/\/$/, '') + '/' + e.path }));
+    dirChildren.value = { ...dirChildren.value, [dirPath]: resolved };
   } catch { /* 忽略读取失败 */ }
   loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
 }
