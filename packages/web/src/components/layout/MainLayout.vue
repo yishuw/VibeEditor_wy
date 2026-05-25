@@ -68,7 +68,10 @@
             :sections="sidebarSections"
           >
             <template v-slot:language>
-              <SettingsPanel />
+              <SettingsPanel section="language" />
+            </template>
+            <template v-slot:appearance>
+              <SettingsPanel section="appearance" />
             </template>
           </SideBar>
         </template>
@@ -271,6 +274,7 @@ function onActivitySelect(id: string) {
   } else if (id === 'settings') {
     sidebarSections.value = [
       { id: 'language', label: t('sidebar.language'), count: undefined },
+      { id: 'appearance', label: t('sidebar.appearance'), count: undefined },
     ];
   } else {
     sidebarSections.value = [

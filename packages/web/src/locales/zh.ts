@@ -44,8 +44,13 @@ export default {
     explorer: '资源管理器',
     search: '搜索',
     language: '语言',
+    appearance: '外观',
     comingSoon: '即将推出',
     manage: '管理',
+  },
+  settings: {
+    language: '语言',
+    theme: '主题',
   },
   placeholder: {
     title: 'VibeEditor',
@@ -197,5 +202,11 @@ export default {
     openai: 'OpenAI',
     siliconflow: '硅基流动 (SiliconFlow)',
     fetchFailed: '无法从该地址获取模型列表',
+  },
+  theme: {
+    label: '主题',
+    dark: '深色',
+    light: '现代浅色',
+    blue: '深蓝色',
   },
 };

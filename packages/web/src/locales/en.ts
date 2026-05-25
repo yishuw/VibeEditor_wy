@@ -44,8 +44,13 @@ export default {
     explorer: 'EXPLORER',
     search: 'SEARCH',
     language: 'LANGUAGE',
+    appearance: 'APPEARANCE',
     comingSoon: 'COMING SOON',
     manage: 'MANAGE',
+  },
+  settings: {
+    language: 'Language',
+    theme: 'Theme',
   },
   placeholder: {
     title: 'VibeEditor',
@@ -197,5 +202,11 @@ export default {
     openai: 'OpenAI',
     siliconflow: 'SiliconFlow',
     fetchFailed: 'Cannot fetch model list from this URL',
+  },
+  theme: {
+    label: 'Theme',
+    dark: 'Dark',
+    light: 'Light Modern',
+    blue: 'Tomorrow Night Blue',
   },
 };

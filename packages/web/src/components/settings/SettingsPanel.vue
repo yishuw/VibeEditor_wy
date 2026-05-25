@@ -1,7 +1,7 @@
 <template>
   <div class="settings-panel">
-    <div class="sp-item">
-      <span class="sp-label">{{ $t('sidebar.manage') }}</span>
+    <div v-if="section === 'language'" class="sp-item">
+      <span class="sp-label">{{ $t('settings.language') }}</span>
       <select
         class="sp-select"
         :value="settings.language"
@@ -11,18 +11,39 @@
         <option value="zh">中文</option>
       </select>
     </div>
+    <div v-else-if="section === 'appearance'" class="sp-item">
+      <span class="sp-label">{{ $t('settings.theme') }}</span>
+      <select
+        class="sp-select"
+        :value="settings.theme"
+        @change="onThemeChange"
+      >
+        <option value="dark">{{ $t('theme.dark') }}</option>
+        <option value="light">{{ $t('theme.light') }}</option>
+        <option value="blue">{{ $t('theme.blue') }}</option>
+      </select>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useSettingsStore } from '../../stores/settings';
-import type { Language } from '../../stores/settings';
+import type { Language, Theme } from '../../stores/settings';
+
+defineProps<{
+  section: 'language' | 'appearance';
+}>();
 
 const settings = useSettingsStore();
 
 function onLanguageChange(e: Event) {
   const target = e.target as HTMLSelectElement;
   settings.setLanguage(target.value as Language);
+}
+
+function onThemeChange(e: Event) {
+  const target = e.target as HTMLSelectElement;
+  settings.setTheme(target.value as Theme);
 }
 </script>
 
