@@ -1,7 +1,15 @@
-import type { AgentConfig } from '@vibeeditor/agent';
 import { i18n } from '../locales';
 
-export type { AgentConfig };
+/** Agent 运行配置 */
+export interface AgentConfig {
+  mode: 'build' | 'plan';
+  model?: string;
+  apiUrl?: string;
+  apiKey?: string;
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
 
 /** 对话消息 */
 export interface AgentMessage {
@@ -68,12 +76,16 @@ export function createAgentService(baseUrl = '') {
         const parts = buffer.split('\n');
         buffer = parts.pop() || '';
 
+        let streamDone = false;
         for (const line of parts) {
           if (!line.startsWith('data: ')) continue;
           try {
             const data = JSON.parse(line.slice(6));
             if (data.error) throw new Error(data.error);
-            if (data.done) break;
+            if (data.done) {
+              streamDone = true;
+              break;
+            }
 
             if (data.tool_start && onEvent) {
               onEvent({ type: 'tool_start', message: data.tool_start });
@@ -103,6 +115,7 @@ export function createAgentService(baseUrl = '') {
             // skip unparseable SSE lines
           }
         }
+        if (streamDone) break;
       }
 
       if (thinkingActive && onEvent) {

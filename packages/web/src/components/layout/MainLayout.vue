@@ -23,11 +23,10 @@
       @edit-redo="handleEditAction('redo')"
       @edit-find="handleEditAction('find')"
       @edit-replace="handleEditAction('replace')"
-      @toggle-agent="showAgent = !showAgent"
       @toggle-sidebar="toggleSidebar"
       :sidebar-collapsed="sidebarCollapsed"
     />
-    <div class="main-content">
+    <div ref="mainContentRef" class="main-content">
       <ActivityBar
         :items="topActivityItems"
         :bottom-items="bottomActivityItems"
@@ -161,10 +160,17 @@
           </div>
         </div>
       </div>
-      <div v-if="showAgent" class="agent-resize-handle" @mousedown="startAgentResize"></div>
-      <div v-if="showAgent" class="agent-sidebar" :style="{ width: agentWidth + 'px' }">
-        <AgentPanel :file-client="fs.client" @apply-edits="handleApplyEdits" @undo-edits="undoLastEdits" />
+      <div v-if="activeRightPanel" class="right-resize-handle" @mousedown="startRightPanelResize"></div>
+      <div v-if="activeRightPanel" class="right-sidebar" :style="{ width: rightPanelWidth + 'px' }">
+        <AgentPanel v-if="activeRightPanel === 'agent'" @apply-edits="handleApplyEdits" @undo-edits="undoLastEdits" />
+        <McpSettingsPanel v-else-if="activeRightPanel === 'mcp'" />
       </div>
+      <RightToolbar
+        :items="rightToolbarItems"
+        :bottom-items="[]"
+        :active-id="activeRightPanel"
+        @select="onRightToolbarSelect"
+      />
     </div>
     <StatusBar
       :active-tab="store.activeTab"
@@ -193,7 +199,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue';
+import { ref, reactive, watch, computed, onMounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
@@ -215,6 +221,9 @@ import PdfViewer from '../editor/PdfViewer.vue';
 import HtmlViewer from '../editor/HtmlViewer.vue';
 import MarkdownViewer from '../editor/MarkdownViewer.vue';
 import AgentPanel from '../agent/AgentPanel.vue';
+import McpSettingsPanel from '../mcp/McpSettingsPanel.vue';
+import RightToolbar from './RightToolbar.vue';
+import type { RightToolbarItem } from './RightToolbar.vue';
 import SettingDropdown from '../settings/SettingDropdown.vue';
 import SaveDialog from '../SaveDialog.vue';
 import StatusBar from '../StatusBar.vue';
@@ -224,11 +233,13 @@ const fs = reactive(useFileSystem());
 const { t } = useI18n();
 
 // ===== 布局状态 =====
-const showAgent = ref(false);
+const mainContentRef = ref<HTMLElement | null>(null);
+const activeRightPanel = ref<string | null>('agent');
 const sidebarWidth = ref(260);
 const sidebarCollapsed = ref(false);
 const sidebarSavedWidth = ref(260);
-const agentWidth = ref(350);
+const rightPanelWidth = ref(0);
+const MIN_EDITOR_WIDTH = 240;
 const activeActivity = ref('explorer');
 const isDraggingFolder = ref(false);
 // Drag events fire as the cursor moves across child elements, so count depth.
@@ -245,7 +256,52 @@ const topActivityItems = computed<ActivityItem[]>(() => [
 
 const bottomActivityItems = computed<ActivityItem[]>(() => []);
 
-const activityItems = computed<ActivityItem[]>(() => [...topActivityItems.value, ...bottomActivityItems.value]);
+const rightToolbarItems = computed<RightToolbarItem[]>(() => [
+  { id: 'agent', label: t('rightToolbar.agent'), icon: '🤖' },
+  { id: 'mcp', label: t('rightToolbar.mcp'), icon: '🔌' },
+]);
+
+function onRightToolbarSelect(id: string) {
+  if (activeRightPanel.value === id) {
+    activeRightPanel.value = null;
+  } else {
+    activeRightPanel.value = id;
+    if (!rightPanelWidth.value) initRightPanelWidth();
+  }
+}
+
+/** 右侧面板最大宽度：主区域宽 - 活动栏(48) - 侧边栏(如果展开) - 调整手柄(4) - 最小编辑器宽 - 右侧工具栏(48) */
+function calcRightPanelMax(): number {
+  if (!mainContentRef.value) return 800;
+  const total = mainContentRef.value.clientWidth;
+  const sidebar = sidebarCollapsed.value ? 0 : sidebarWidth.value + 4;
+  return total - 48 - sidebar - MIN_EDITOR_WIDTH - 48;
+}
+
+/** 初始化右侧面板宽度为剩余空间的一半 */
+function initRightPanelWidth() {
+  if (!mainContentRef.value) {
+    rightPanelWidth.value = 350;
+    return;
+  }
+  const total = mainContentRef.value.clientWidth;
+  const sidebar = sidebarCollapsed.value ? 0 : sidebarWidth.value + 4;
+  const available = total - 48 - sidebar - 48;
+  rightPanelWidth.value = Math.round(available / 2);
+}
+
+onMounted(() => {
+  nextTick(() => initRightPanelWidth());
+  window.addEventListener('resize', onWindowResize);
+});
+
+function onWindowResize() {
+  if (!activeRightPanel.value || !rightPanelWidth.value) return;
+  const max = calcRightPanelMax();
+  if (rightPanelWidth.value > max) {
+    rightPanelWidth.value = max;
+  }
+}
 
 const activeActivityTitle = ref(t('sidebar.explorer'));
 
@@ -288,7 +344,7 @@ const expandedDirs = ref(new Set<string>());
 const loadingDirs = ref(new Set<string>());
 const dirChildren = ref<Record<string, any[]>>({});
 let isResizingSidebar = false;
-let isResizingAgent = false;
+let isResizingRightPanel = false;
 
 // ===== 另存为对话框状态 =====
 const showSaveDialog = ref(false);
@@ -573,19 +629,20 @@ function startSidebarResize(e: MouseEvent) {
   document.addEventListener('mouseup', onUp);
 }
 
-/** Agent 面板宽度拖拽（向左拖拽拉宽面板） */
-function startAgentResize(e: MouseEvent) {
-  isResizingAgent = true;
+/** 右侧面板宽度拖拽（向左拖拽拉宽面板） */
+function startRightPanelResize(e: MouseEvent) {
+  isResizingRightPanel = true;
   const startX = e.clientX;
-  const startWidth = agentWidth.value;
+  const startWidth = rightPanelWidth.value;
 
   const onMove = (ev: MouseEvent) => {
-    if (!isResizingAgent) return;
-    agentWidth.value = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX)));
+    if (!isResizingRightPanel) return;
+    const maxWidth = calcRightPanelMax();
+    rightPanelWidth.value = Math.max(300, Math.min(maxWidth, startWidth - (ev.clientX - startX)));
   };
 
   const onUp = () => {
-    isResizingAgent = false;
+    isResizingRightPanel = false;
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
   };
@@ -800,16 +857,16 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
   color: var(--text-secondary);
   font-size: 13px;
 }
-.agent-resize-handle {
+.right-resize-handle {
   width: 4px;
   cursor: col-resize;
   background: var(--border-color);
   flex-shrink: 0;
 }
-.agent-resize-handle:hover {
+.right-resize-handle:hover {
   background: var(--accent-color);
 }
-.agent-sidebar {
+.right-sidebar {
   flex-shrink: 0;
   border-left: 1px solid var(--border-color);
 }

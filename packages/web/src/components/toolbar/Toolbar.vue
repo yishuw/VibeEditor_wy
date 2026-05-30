@@ -80,9 +80,6 @@
       <span v-if="workspaceMode" class="toolbar-badge">
         {{ workspaceMode.toUpperCase() }}
       </span>
-      <button class="toolbar-btn toolbar-agent-btn" :title="$t('toolbar.toggleAgent')" @click="$emit('toggle-agent')">
-        {{ $t('toolbar.agent') }}
-      </button>
     </div>
   </div>
 </template>
@@ -103,7 +100,6 @@ defineEmits<{
   'save': [];
   'new-file': [];
   'new-folder': [];
-  'toggle-agent': [];
   'toggle-sidebar': [];
   'edit-cut': [];
   'edit-copy': [];
@@ -174,14 +170,6 @@ defineEmits<{
 .toolbar-btn:hover {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
-}
-.toolbar-agent-btn {
-  color: var(--accent-color);
-  font-weight: 500;
-}
-.toolbar-agent-btn:hover {
-  color: var(--accent-color);
-  background: rgba(0, 122, 204, 0.1);
 }
 .sidebar-toggle-icon {
   font-size: 16px;

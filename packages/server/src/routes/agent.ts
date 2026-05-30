@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { OpenAILikeProvider, AgentLoop, executeEdits, type AgentContext, type AgentConfig, type AgentEditResult } from '@vibeeditor/agent';
+import { Agent, Session, executeEdits, createOpenAILLMProvider, buildMessages, McpManager, type AgentContext, type AgentConfig, type AgentEditResult, type McpConfig } from '@vibeeditor/agent';
 import { LocalFileSystem } from '@vibeeditor/core';
 
 const router = Router();
@@ -16,6 +16,29 @@ function buildAgentConfig(body: Record<string, unknown>): AgentConfig {
   };
 }
 
+function buildDefaultSystemPrompt(mode: string): string {
+  return [
+    'You are an autonomous coding agent. Your goal is to understand, plan, and execute code changes.',
+    '',
+    '## Making Changes',
+    'To modify or create a file, output an edit block with the exact file path:',
+    '',
+    '<edit path="src/components/Example.tsx">',
+    '// FULL file content here — include every line, not just the diff',
+    '</edit>',
+    '',
+    'The path must be a real file path from the project tree. Never use placeholder paths like "path/to/file".',
+    '',
+    '## Rules',
+    '1. Read files before editing them',
+    '2. Make focused, minimal changes',
+    '3. In <edit> blocks, provide COMPLETE file content, not partial diffs',
+    '4. Think step by step: explore → plan → execute → explain',
+    '5. Only output <edit> blocks when the user explicitly asks for file changes',
+    `6. Current mode: ${mode}`,
+  ].join('\n');
+}
+
 router.post('/chat', async (req: Request, res: Response) => {
   try {
     const { message, context } = req.body;
@@ -26,13 +49,16 @@ router.post('/chat', async (req: Request, res: Response) => {
       return;
     }
 
-    const provider = new OpenAILikeProvider();
-    await provider.initialize(config);
+    const llm = createOpenAILLMProvider(config);
+    const messages = buildMessages(config, message, context as AgentContext);
+    const content = await llm.chat(messages);
 
-    const response = await provider.sendMessage(message, context as AgentContext);
-    provider.dispose();
-
-    res.json(response);
+    res.json({
+      id: `agent_${Date.now()}`,
+      role: 'assistant',
+      content,
+      timestamp: Date.now(),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
@@ -59,16 +85,61 @@ router.post('/stream', async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
-  const provider = new OpenAILikeProvider();
-  await provider.initialize(config);
-
   try {
     if (config.mode === 'build') {
       const fs = new LocalFileSystem(rootPath);
-      const loop = new AgentLoop(fs);
-      await loop.run(provider, config, message, context as AgentContext, writeSSE);
+      const agent = new Agent(
+        {
+          id: 'main',
+          name: 'Main Agent',
+          systemPrompt: config.systemPrompt || buildDefaultSystemPrompt(config.mode),
+          temperature: config.temperature,
+          maxTokens: config.maxTokens,
+        },
+        config,
+        fs
+      );
+
+      // 如果前端传了 MCP 配置，连接 MCP 服务器并注册工具
+      const mcpConfig = (req.body as any).mcpConfig as McpConfig | undefined;
+      if (mcpConfig?.mcpServers && Object.keys(mcpConfig.mcpServers).length > 0) {
+        try {
+          const manager = new McpManager();
+          await manager.connectAll(mcpConfig);
+          const mcpTools = await manager.discoverAndCreateAdapters();
+          for (const tool of mcpTools) {
+            agent.registerTool(tool);
+          }
+          writeSSE({ tool_start: `🔌 MCP: ${manager.serverCount} server(s), ${mcpTools.length} tool(s)` });
+        } catch (e: any) {
+          writeSSE({ tool_start: `⚠️ MCP connection failed: ${e.message}` });
+        }
+      }
+
+      const session = new Session('default', fs, agent);
+      await session.startStream(message, context as AgentContext, (e) => {
+        switch (e.type) {
+          case 'chunk':
+            writeSSE({ chunk: e.data });
+            break;
+          case 'tool_start':
+            writeSSE({ tool_start: `🔍 ${e.toolType}: ${e.toolLabel || ''}` });
+            break;
+          case 'tool_end':
+            writeSSE({ tool_end: `${e.toolType} complete` });
+            break;
+          case 'thinking':
+            writeSSE({ thinking: e.data });
+            break;
+          case 'done':
+            break;
+        }
+      });
+      writeSSE({ done: true });
     } else {
-      await provider.streamMessage(message, context as AgentContext, (type, text) => {
+      const llm = createOpenAILLMProvider(config);
+      const messages = buildMessages(config, message, context as AgentContext);
+      await llm.chatStream(messages, (type, text) => {
         if (type === 'thinking') {
           writeSSE({ thinking: text });
         } else {
@@ -81,8 +152,6 @@ router.post('/stream', async (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     writeSSE({ error: msg });
     writeSSE({ done: true });
-  } finally {
-    provider.dispose();
   }
 });
 
