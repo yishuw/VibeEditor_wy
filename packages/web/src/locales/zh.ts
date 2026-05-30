@@ -26,9 +26,11 @@ export default {
     findShort: 'Ctrl+F',
     replace: '替换',
     replaceShort: 'Ctrl+H',
-    toggleAgent: '切换 AI 面板',
-    agent: 'AI 助手',
     appName: 'VibeEditor',
+  },
+  rightToolbar: {
+    agent: 'AI 助手',
+    mcp: 'MCP 服务器',
   },
   activityBar: {
     explorer: '资源管理器 (Ctrl+Shift+E)',
@@ -208,5 +210,9 @@ export default {
     dark: '深色',
     light: '现代浅色',
     blue: '深蓝色',
+  },
+  mcp: {
+    title: 'MCP 服务器',
+    placeholder: 'MCP 服务器管理与配置将在此显示。',
   },
 };

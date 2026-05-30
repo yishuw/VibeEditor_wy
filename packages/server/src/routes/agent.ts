@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Agent, Session, executeEdits, createOpenAILLMProvider, buildMessages, type AgentContext, type AgentConfig, type AgentEditResult } from '@vibeeditor/agent';
+import { Agent, Session, executeEdits, createOpenAILLMProvider, buildMessages, McpManager, type AgentContext, type AgentConfig, type AgentEditResult, type McpConfig } from '@vibeeditor/agent';
 import { LocalFileSystem } from '@vibeeditor/core';
 
 const router = Router();
@@ -21,19 +21,21 @@ function buildDefaultSystemPrompt(mode: string): string {
     'You are an autonomous coding agent. Your goal is to understand, plan, and execute code changes.',
     '',
     '## Making Changes',
-    'When ready to make changes, output:',
-    '<edit path="path/to/file">',
-    '```language',
-    'complete file content',
-    '```',
+    'To modify or create a file, output an edit block with the exact file path:',
+    '',
+    '<edit path="src/components/Example.tsx">',
+    '// FULL file content here — include every line, not just the diff',
     '</edit>',
+    '',
+    'The path must be a real file path from the project tree. Never use placeholder paths like "path/to/file".',
     '',
     '## Rules',
     '1. Read files before editing them',
     '2. Make focused, minimal changes',
-    '3. In <edit> blocks, provide COMPLETE file content',
+    '3. In <edit> blocks, provide COMPLETE file content, not partial diffs',
     '4. Think step by step: explore → plan → execute → explain',
-    `5. Current mode: ${mode}`,
+    '5. Only output <edit> blocks when the user explicitly asks for file changes',
+    `6. Current mode: ${mode}`,
   ].join('\n');
 }
 
@@ -97,13 +99,28 @@ router.post('/stream', async (req: Request, res: Response) => {
         config,
         fs
       );
+
+      // 如果前端传了 MCP 配置，连接 MCP 服务器并注册工具
+      const mcpConfig = (req.body as any).mcpConfig as McpConfig | undefined;
+      if (mcpConfig?.mcpServers && Object.keys(mcpConfig.mcpServers).length > 0) {
+        try {
+          const manager = new McpManager();
+          await manager.connectAll(mcpConfig);
+          const mcpTools = await manager.discoverAndCreateAdapters();
+          for (const tool of mcpTools) {
+            agent.registerTool(tool);
+          }
+          writeSSE({ tool_start: `🔌 MCP: ${manager.serverCount} server(s), ${mcpTools.length} tool(s)` });
+        } catch (e: any) {
+          writeSSE({ tool_start: `⚠️ MCP connection failed: ${e.message}` });
+        }
+      }
+
       const session = new Session('default', fs, agent);
-      await session.start(message, context as AgentContext, (e) => {
+      await session.startStream(message, context as AgentContext, (e) => {
         switch (e.type) {
           case 'chunk':
-            for (let i = 0; i < (e.data || '').length; i += 40) {
-              writeSSE({ chunk: (e.data || '').slice(i, i + 40) });
-            }
+            writeSSE({ chunk: e.data });
             break;
           case 'tool_start':
             writeSSE({ tool_start: `🔍 ${e.toolType}: ${e.toolLabel || ''}` });
@@ -118,6 +135,7 @@ router.post('/stream', async (req: Request, res: Response) => {
             break;
         }
       });
+      writeSSE({ done: true });
     } else {
       const llm = createOpenAILLMProvider(config);
       const messages = buildMessages(config, message, context as AgentContext);

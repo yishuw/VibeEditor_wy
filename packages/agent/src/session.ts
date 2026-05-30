@@ -38,7 +38,7 @@ export class Session {
     this.subAgents.set(agent.definition.id, agent);
   }
 
-  /** 启动主 Agent 处理用户消息 */
+  /** 启动主 Agent 处理用户消息（非流式） */
   async start(
     message: string,
     context: AgentContext,
@@ -54,6 +54,42 @@ export class Session {
     });
 
     const mainResult = await this.runAgent(this.mainAgent, message, context, emit);
+
+    this.messages.push({
+      id: this.nextId(),
+      role: 'agent',
+      agentId: this.mainAgent.definition.id,
+      content: mainResult.content,
+      timestamp: Date.now(),
+    });
+
+    const subResults = await this.handleDelegation(mainResult, context, emit);
+
+    emit({ type: 'done' });
+
+    return {
+      sessionId: this.id,
+      mainResult,
+      subResults,
+    };
+  }
+
+  /** 启动主 Agent 处理用户消息（流式） */
+  async startStream(
+    message: string,
+    context: AgentContext,
+    onEvent?: SessionEventCallback
+  ): Promise<SessionResult> {
+    const emit = (e: SessionEvent) => onEvent?.(e);
+
+    this.messages.push({
+      id: this.nextId(),
+      role: 'user',
+      content: message,
+      timestamp: Date.now(),
+    });
+
+    const mainResult = await this.runAgentStream(this.mainAgent, message, context, emit);
 
     this.messages.push({
       id: this.nextId(),
@@ -104,6 +140,30 @@ export class Session {
     emit: SessionEventCallback
   ): Promise<AgentResult> {
     return agent.execute(message, context, (e: AgentEvent) => {
+      switch (e.type) {
+        case 'chunk':
+          emit({ type: 'chunk', agentId: agent.definition.id, data: e.text });
+          break;
+        case 'thinking':
+          emit({ type: 'thinking', agentId: agent.definition.id, data: e.text });
+          break;
+        case 'tool_start':
+          emit({ type: 'tool_start', agentId: agent.definition.id, toolType: e.toolType, toolLabel: e.toolLabel });
+          break;
+        case 'tool_end':
+          emit({ type: 'tool_end', agentId: agent.definition.id, toolType: e.toolType });
+          break;
+      }
+    });
+  }
+
+  private async runAgentStream(
+    agent: Agent,
+    message: string,
+    context: AgentContext,
+    emit: SessionEventCallback
+  ): Promise<AgentResult> {
+    return agent.executeStream(message, context, (e: AgentEvent) => {
       switch (e.type) {
         case 'chunk':
           emit({ type: 'chunk', agentId: agent.definition.id, data: e.text });

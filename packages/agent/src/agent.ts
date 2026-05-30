@@ -223,6 +223,8 @@ export class Agent {
       const response = await this.provider.chatStream(messages, (type, text) => {
         if (type === 'thinking') {
           emit({ type: 'thinking', text });
+        } else if (type === 'content') {
+          emit({ type: 'chunk', text });
         }
       });
 
@@ -234,28 +236,17 @@ export class Agent {
       const parsedTools = parseToolCalls(response, this.tools.getTagNames());
 
       if (parsedTools.length > 0) {
-        let textBefore = response;
-        for (const t of parsedTools) {
-          textBefore = textBefore.replace(new RegExp(`<${t.type}[^>]*\\/>`, 'g'), '');
-        }
-        textBefore = textBefore.trim();
-
-        if (textBefore) {
-          emit({ type: 'chunk', text: textBefore + '\n' });
-          fullContent += textBefore + '\n';
-        }
+        fullContent += response;
 
         for (const tool of parsedTools) {
           toolCalls.push(tool);
           emit({ type: 'tool_start', toolType: tool.type, toolLabel: tool.params.path || tool.params.pattern || '' });
 
           const result = await this.executeTool(tool);
-          const toolBlock = `\n**[Tool: ${tool.type}]**\n`;
+          const toolResult = `\n\n**[Tool: ${tool.type}]**\n${result}\n`;
 
-          emit({ type: 'chunk', text: toolBlock });
-          fullContent += toolBlock;
-          emit({ type: 'chunk', text: result + '\n' });
-          fullContent += result + '\n';
+          emit({ type: 'chunk', text: toolResult });
+          fullContent += toolResult;
           emit({ type: 'tool_end', toolType: tool.type });
 
           messages.push({
@@ -268,8 +259,8 @@ export class Agent {
         continue;
       }
 
-      emit({ type: 'chunk', text: response });
-      fullContent += response;
+      // 对于没有工具调用的最终轮次，内容已经在流式回调中发射过了
+      fullContent = response;
       emit({ type: 'done' });
       break;
     }

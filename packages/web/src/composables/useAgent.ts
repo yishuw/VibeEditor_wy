@@ -15,6 +15,16 @@ export interface AgentContext {
   conversationHistory: { id: string; role: string; content: string; timestamp: number }[];
 }
 
+/** 消息块 —— 按时间顺序记录助手消息中的每个阶段 */
+export interface MessageBlock {
+  id: string;
+  type: 'thinking' | 'response' | 'tool_call';
+  content: string;
+  toolType?: string;
+  toolLabel?: string;
+  completed: boolean;
+}
+
 /** 聊天消息 */
 export interface ChatMessage {
   id: string;
@@ -23,6 +33,19 @@ export interface ChatMessage {
   thinking?: string;
   timestamp: number;
   editOperations?: ParsedEdit[];
+  /** 按时间顺序排列的消息块（助手消息） */
+  blocks?: MessageBlock[];
+  /** @deprecated 使用 blocks 替代 */
+  toolNodes?: ToolCallNode[];
+}
+
+/** 流式过程中的工具调用节点 */
+export interface ToolCallNode {
+  id: string;
+  toolType: string;
+  toolLabel: string;
+  result: string;
+  completed: boolean;
 }
 
 function collectFileTreePaths(entries: any[], basePath: string): string[] {
@@ -162,6 +185,36 @@ export function useAgent() {
 
     isProcessing.value = true;
 
+    // 流式过程中按顺序构建 blocks
+    let currentBlock: MessageBlock | null = null;
+    let blockIdCounter = 0;
+    const nextBlockId = () => `blk_${assistantMsgId}_${blockIdCounter++}`;
+
+    function finishBlock() {
+      if (currentBlock) {
+        currentBlock.completed = true;
+        currentBlock = null;
+      }
+    }
+
+    function ensureBlock(type: MessageBlock['type'], toolType?: string, toolLabel?: string) {
+      if (currentBlock && currentBlock.type === type && !currentBlock.completed) return;
+      finishBlock();
+      currentBlock = {
+        id: nextBlockId(),
+        type,
+        content: '',
+        toolType,
+        toolLabel,
+        completed: false,
+      };
+      const msg = messages.value.find(m => m.id === assistantMsgId);
+      if (msg) {
+        if (!msg.blocks) msg.blocks = [];
+        msg.blocks.push(currentBlock);
+      }
+    }
+
     try {
       const store = useEditorStore();
       const ctx = buildAgentContext(activeFilePath);
@@ -180,9 +233,23 @@ export function useAgent() {
           const msg = messages.value.find(m => m.id === assistantMsgId);
           if (!msg) return;
           if (type === 'thinking') {
-            msg.thinking = (msg.thinking || '') + text;
             thinkingActive.value = true;
+            ensureBlock('thinking');
+            currentBlock!.content += text;
+            // 保持向后兼容
+            msg.thinking = (msg.thinking || '') + text;
           } else {
+            // content 到达意味着 thinking 结束
+            if (thinkingActive.value) {
+              thinkingActive.value = false;
+            }
+            // 路由到正确的块：工具调用期间的内容是工具结果
+            if (currentBlock && currentBlock.type === 'tool_call' && !currentBlock.completed) {
+              currentBlock.content += text;
+            } else {
+              ensureBlock('response');
+              currentBlock!.content += text;
+            }
             msg.content += text;
           }
           if (onChunk) onChunk();
@@ -190,8 +257,26 @@ export function useAgent() {
         (event: StreamEvent) => {
           if (event.type === 'tool_start') {
             toolStatus.value = event.message || '';
+            const match = (event.message || '').match(/^🔍\s*(\S+):?\s*(.*)/);
+            const toolType = match ? match[1] : (event.message || 'tool');
+            const toolLabel = match ? match[2] : '';
+            finishBlock();
+            currentBlock = {
+              id: nextBlockId(),
+              type: 'tool_call',
+              content: '',
+              toolType,
+              toolLabel,
+              completed: false,
+            };
+            const msg = messages.value.find(m => m.id === assistantMsgId);
+            if (msg) {
+              if (!msg.blocks) msg.blocks = [];
+              msg.blocks.push(currentBlock);
+            }
           } else if (event.type === 'tool_end') {
             toolStatus.value = '';
+            finishBlock();
           } else if (event.type === 'thinking_start') {
             thinkingActive.value = true;
           } else if (event.type === 'thinking_end') {
@@ -211,6 +296,7 @@ export function useAgent() {
         msg.content = `Error: ${e.message}`;
       }
     } finally {
+      finishBlock();
       const msg = messages.value.find(m => m.id === assistantMsgId);
       if (msg) msg.timestamp = Date.now();
       thinkingActive.value = false;

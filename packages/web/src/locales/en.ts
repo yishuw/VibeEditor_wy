@@ -26,9 +26,11 @@ export default {
     findShort: 'Ctrl+F',
     replace: 'Replace',
     replaceShort: 'Ctrl+H',
-    toggleAgent: 'Toggle Agent Panel',
-    agent: 'Agent',
     appName: 'VibeEditor',
+  },
+  rightToolbar: {
+    agent: 'AI Agent',
+    mcp: 'MCP Servers',
   },
   activityBar: {
     explorer: 'Explorer (Ctrl+Shift+E)',
@@ -208,5 +210,9 @@ export default {
     dark: 'Dark',
     light: 'Light Modern',
     blue: 'Tomorrow Night Blue',
+  },
+  mcp: {
+    title: 'MCP SERVERS',
+    placeholder: 'MCP Server management and configuration will appear here.',
   },
 };
