@@ -336,6 +336,127 @@ export function useFileSystem() {
     }
   }
 
+  /** 创建空文件到指定目录 */
+  async function createFileInDir(dirPath: string, fileName: string) {
+    error.value = null;
+    try {
+      const fullPath = dirPath ? dirPath.replace(/\/$/, '') + '/' + fileName : fileName;
+      const { client, relativePath } = resolveClient(fullPath);
+      await client.writeFile(relativePath, '');
+      onAfterSave?.(fullPath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  /** 在指定父目录下创建子文件夹 */
+  async function createDirInPath(parentPath: string, folderName: string) {
+    error.value = null;
+    try {
+      const fullPath = parentPath ? parentPath.replace(/\/$/, '') + '/' + folderName : folderName;
+      const { client, relativePath } = resolveClient(fullPath);
+      await client.createDir(relativePath);
+      onAfterSave?.(fullPath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  /** 重命名文件或文件夹 */
+  async function renameFile(oldPath: string, newName: string) {
+    error.value = null;
+    try {
+      const parentPath = oldPath.replace(/[^/\\]+$/, '');
+      const newPath = parentPath + newName;
+      const { client, relativePath: relOld } = resolveClient(oldPath);
+      const { relativePath: relNew } = resolveClient(newPath);
+      await client.rename(relOld, relNew);
+
+      const openTabs = store.tabs.filter(t => t.path === oldPath);
+      for (const tab of openTabs) {
+        store.setTabPath(tab.id, newPath);
+      }
+      onAfterSave?.(oldPath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  /** 复制路径到剪贴板 */
+  async function copyPathToClipboard(path: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+    } catch {
+      // 剪贴板不可用
+    }
+  }
+
+  // 剪切板状态
+  const clipboard = ref<{ action: 'cut' | 'copy'; path: string; isDirectory: boolean; name: string } | null>(null);
+
+  function cutItem(path: string, isDirectory: boolean, name: string) {
+    clipboard.value = { action: 'cut', path, isDirectory, name };
+  }
+
+  function copyItem(path: string, isDirectory: boolean, name: string) {
+    clipboard.value = { action: 'copy', path, isDirectory, name };
+  }
+
+  async function pasteItem(targetDir: string) {
+    const item = clipboard.value;
+    if (!item) return;
+    error.value = null;
+    try {
+      const targetParent = targetDir ? targetDir.replace(/\/$/, '') : '';
+      const targetPath = targetParent ? targetParent + '/' + item.name : item.name;
+
+      if (item.action === 'cut') {
+        const { client, relativePath: relSrc } = resolveClient(item.path);
+        const { relativePath: relTarget } = resolveClient(targetPath);
+        await client.rename(relSrc, relTarget);
+
+        const openTabs = store.tabs.filter(t => t.path === item.path);
+        for (const tab of openTabs) {
+          store.setTabPath(tab.id, targetPath);
+        }
+        clipboard.value = null;
+      } else {
+        const { client, relativePath: relSrc } = resolveClient(item.path);
+        const { client: targetClient, relativePath: relTarget } = resolveClient(targetPath);
+
+        if (item.isDirectory) {
+          await copyDirRecursive(client, targetClient, relSrc, relTarget);
+        } else {
+          const content = await client.readFile(relSrc);
+          await targetClient.writeFile(relTarget, content);
+        }
+      }
+      onAfterSave?.(targetDir || '.');
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  async function copyDirRecursive(
+    srcClient: FileServiceClient,
+    targetClient: FileServiceClient,
+    srcPath: string,
+    targetPath: string,
+  ) {
+    await targetClient.createDir(targetPath);
+    const entries = await srcClient.readDir(srcPath);
+    for (const entry of entries) {
+      const childSrc = srcPath + '/' + entry.path;
+      const childTarget = targetPath + '/' + entry.path;
+      if (entry.isDirectory) {
+        await copyDirRecursive(srcClient, targetClient, childSrc, childTarget);
+      } else {
+        const content = await srcClient.readFile(childSrc);
+        await targetClient.writeFile(childTarget, content);
+      }
+    }
+  }
+
   /** 打开浏览器本地文件夹选择器 */
   async function openLocalFolder() {
     error.value = null;
@@ -667,6 +788,14 @@ export function useFileSystem() {
     undoDelete,
     createFolder,
     readDirForPath,
+    createFileInDir,
+    createDirInPath,
+    renameFile,
+    copyPathToClipboard,
+    clipboard,
+    cutItem,
+    copyItem,
+    pasteItem,
     lastDeleted,
     showUndoNotification,
     setSaveAsHandler,

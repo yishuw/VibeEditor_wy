@@ -53,9 +53,16 @@
                 :expanded-dirs="expandedDirs"
                 :loading-dirs="loadingDirs"
                 :dir-children="dirChildren"
+                :renaming-path="renamingPath"
+                :creating-in-dir="creatingInDir"
+                :creating-node-key="creatingNodeKey"
                 @select-file="fs.openAndReadFile"
                 @expand-dir="handleExpandDir"
                 @delete-file="fs.deleteFile"
+                @contextmenu="handleFileTreeContextMenu"
+                @confirm-rename="handleConfirmRename"
+                @confirm-create="handleConfirmCreate"
+                @cancel-create="handleCancelCreate"
               />
             </template>
           </SideBar>
@@ -199,6 +206,8 @@ import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
 import { getEditorInstance } from '../../services/editorInstance';
 import type { ParsedEdit } from '../../services/editParser';
+import { showFileTreeContextMenu } from '../file-tree/contextMenu';
+import type { ContextMenuHandlers } from '../file-tree/contextMenu';
 import Toolbar from '../toolbar/Toolbar.vue';
 import ActivityBar from './ActivityBar.vue';
 import type { ActivityItem } from './ActivityBar.vue';
@@ -233,6 +242,10 @@ const activeActivity = ref('explorer');
 const isDraggingFolder = ref(false);
 // Drag events fire as the cursor moves across child elements, so count depth.
 let dragDepth = 0;
+
+const renamingPath = ref<string | null>(null);
+const creatingInDir = ref<{ path: string; type: 'file' | 'folder' } | null>(null);
+const creatingNodeKey = ref(0);
 
 // ===== 活动栏配置 =====
 const topActivityItems = computed<ActivityItem[]>(() => [
@@ -550,6 +563,79 @@ async function handleExpandDir(dirPath: string) {
     dirChildren.value = { ...dirChildren.value, [dirPath]: resolved };
   } catch { /* 忽略读取失败 */ }
   loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
+}
+
+function handleFileTreeContextMenu(payload: {
+  type: 'file' | 'folder' | 'root';
+  path: string;
+  name: string;
+  event: MouseEvent;
+}) {
+  const handlers: ContextMenuHandlers = {
+    onOpen: (path) => fs.openAndReadFile(path),
+    onRename: (path) => {
+      renamingPath.value = path;
+    },
+    onDelete: (path) => fs.deleteFile(path),
+    onNewFile: (dirPath) => {
+      creatingInDir.value = { path: dirPath || '', type: 'file' };
+      creatingNodeKey.value++;
+    },
+    onNewFolder: (dirPath) => {
+      creatingInDir.value = { path: dirPath || '', type: 'folder' };
+      creatingNodeKey.value++;
+    },
+    onCut: (path, isDir, name) => fs.cutItem(path, isDir, name),
+    onCopy: (path, isDir, name) => fs.copyItem(path, isDir, name),
+    onPaste: (dirPath) => fs.pasteItem(dirPath),
+    onCopyRelativePath: (path) => fs.copyPathToClipboard(path),
+    onCopyAbsolutePath: (path) => {
+      const root = store.workspaceRoot;
+      const absPath = root && (root.startsWith('/') || /^[A-Z]:[\\/]/i.test(root))
+        ? root.replace(/[\\/]?$/, '/') + path
+        : path;
+      fs.copyPathToClipboard(absPath);
+    },
+    onRefresh: () => {
+      clearDirState();
+      fs.loadDirectory('.').then(() => {
+        if (store.fileTreeNodes.length > 0 && store.fileTreeNodes[0]?.isDirectory) {
+          handleExpandDir(store.fileTreeNodes[0].path);
+        }
+      });
+    },
+  };
+
+  showFileTreeContextMenu(
+    payload.type,
+    payload.path,
+    payload.name,
+    payload.event,
+    handlers,
+    fs.clipboard,
+    t,
+  );
+}
+
+async function handleConfirmRename(oldPath: string, newName: string) {
+  renamingPath.value = null;
+  if (newName === oldPath.replace(/^.*[/\\]/, '')) return;
+  await fs.renameFile(oldPath, newName);
+}
+
+async function handleConfirmCreate(parentPath: string, name: string, type: 'file' | 'folder') {
+  creatingInDir.value = null;
+  creatingNodeKey.value++;
+  if (type === 'folder') {
+    await fs.createDirInPath(parentPath, name);
+  } else {
+    await fs.createFileInDir(parentPath, name);
+  }
+}
+
+function handleCancelCreate() {
+  creatingInDir.value = null;
+  creatingNodeKey.value++;
 }
 
 onMounted(() => {

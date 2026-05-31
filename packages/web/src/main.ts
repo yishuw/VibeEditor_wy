@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
+import '@imengyu/vue3-context-menu/lib/vue3-context-menu.css';
 import { i18n } from './locales';
 import App from './App.vue';
 
