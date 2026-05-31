@@ -185,6 +185,8 @@ function createWindow() {
     minHeight: 600,
     title: 'VibeEditor',
     backgroundColor: '#1e1e1e',
+    frame: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hidden' : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -203,6 +205,9 @@ function createWindow() {
     mainWindow.loadURL('vibe://app/index.html');
   }
 
+  mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximizeChange', true));
+  mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximizeChange', false));
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -215,7 +220,28 @@ app.whenReady().then(() => {
   ipcMain.handle('app:getInfo', () => appInfo);
 
   const menu = Menu.buildFromTemplate(buildMenu());
-  Menu.setApplicationMenu(menu);
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(menu);
+  }
+
+  ipcMain.handle('window:minimize', () => mainWindow?.minimize());
+  ipcMain.handle('window:maximize', () => mainWindow?.maximize());
+  ipcMain.handle('window:unmaximize', () => mainWindow?.unmaximize());
+  ipcMain.handle('window:close', () => mainWindow?.close());
+  ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
+  ipcMain.handle('window:getBounds', () => {
+    if (!mainWindow) return null;
+    const bounds = mainWindow.getBounds();
+    return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+  });
+  ipcMain.handle('window:resize', (_event, x: number, y: number, w: number, h: number) => {
+    if (!mainWindow) return;
+    const minW = 800;
+    const minH = 600;
+    const newW = Math.max(minW, w);
+    const newH = Math.max(minH, h);
+    mainWindow.setBounds({ x, y, width: newW, height: newH });
+  });
 
   createWindow();
 

@@ -31,6 +31,14 @@ interface Window {
     saveFile: (path: string, content: string) => Promise<string | null>;
     getAppInfo: () => Promise<{ name: string; version: string; author: string }>;
     onMenuAction: (callback: (action: string) => void) => void;
+    minimizeWindow: () => Promise<void>;
+    maximizeWindow: () => Promise<void>;
+    unmaximizeWindow: () => Promise<void>;
+    closeWindow: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
+    getBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;
+    resizeWindow: (x: number, y: number, w: number, h: number) => Promise<void>;
+    onMaximizeChange: (callback: (isMaximized: boolean) => void) => void;
   };
 }
 

@@ -196,6 +196,16 @@
       <button class="undo-btn" @click="fs.undoDelete()">{{ $t('undoNotification.undo') }}</button>
       <button class="undo-dismiss" @click="fs.showUndoNotification = false">✕</button>
     </div>
+    <template v-if="fs.env === 'electron' && !isMaximized">
+      <div class="resize-handle resize-n" @mousedown="startResize('n' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-s" @mousedown="startResize('s' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-e" @mousedown="startResize('e' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-w" @mousedown="startResize('w' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-ne" @mousedown="startResize('ne' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-nw" @mousedown="startResize('nw' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-se" @mousedown="startResize('se' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-sw" @mousedown="startResize('sw' as ResizeEdge, $event)"></div>
+    </template>
   </div>
 </template>
 
@@ -208,6 +218,8 @@ import { getEditorInstance } from '../../services/editorInstance';
 import type { ParsedEdit } from '../../services/editParser';
 import { showFileTreeContextMenu } from '../file-tree/contextMenu';
 import type { ContextMenuHandlers } from '../file-tree/contextMenu';
+import { useWindowResize } from '../../composables/useWindowResize';
+import type { ResizeEdge } from '../../composables/useWindowResize';
 import Toolbar from '../toolbar/Toolbar.vue';
 import ActivityBar from './ActivityBar.vue';
 import type { ActivityItem } from './ActivityBar.vue';
@@ -247,13 +259,13 @@ const renamingPath = ref<string | null>(null);
 const creatingInDir = ref<{ path: string; type: 'file' | 'folder' } | null>(null);
 const creatingNodeKey = ref(0);
 
+const isMaximized = ref(false);
+const { startResize, isResizing: isWindowResizing } = useWindowResize();
+
 // ===== 活动栏配置 =====
 const topActivityItems = computed<ActivityItem[]>(() => [
   { id: 'explorer', label: t('activityBar.explorer'), icon: '🗋' },
   { id: 'search', label: t('activityBar.search'), icon: '🔍' },
-  { id: 'source-control', label: t('activityBar.sourceControl'), icon: '⑂' },
-  { id: 'debug', label: t('activityBar.debug'), icon: '🐞' },
-  { id: 'extensions', label: t('activityBar.extensions'), icon: '🧩' },
 ]);
 
 const bottomActivityItems = computed<ActivityItem[]>(() => []);
@@ -638,8 +650,13 @@ function handleCancelCreate() {
   creatingNodeKey.value++;
 }
 
-onMounted(() => {
+onMounted(async () => {
   if (window.electronAPI) {
+    isMaximized.value = await window.electronAPI.isMaximized();
+    window.electronAPI.onMaximizeChange((max: boolean) => {
+      isMaximized.value = max;
+    });
+
     window.electronAPI.onMenuAction((action: string) => {
       switch (action) {
         case 'new-file':
@@ -976,5 +993,41 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 }
 .undo-dismiss:hover {
   color: var(--text-primary);
+}
+.resize-handle {
+  position: fixed;
+  z-index: 9999;
+}
+.resize-n {
+  top: 0; left: 0; right: 0; height: 4px;
+  cursor: ns-resize;
+}
+.resize-s {
+  bottom: 0; left: 0; right: 0; height: 4px;
+  cursor: ns-resize;
+}
+.resize-e {
+  top: 0; right: 0; bottom: 0; width: 4px;
+  cursor: ew-resize;
+}
+.resize-w {
+  top: 0; left: 0; bottom: 0; width: 4px;
+  cursor: ew-resize;
+}
+.resize-ne {
+  top: 0; right: 0; width: 8px; height: 8px;
+  cursor: nesw-resize;
+}
+.resize-nw {
+  top: 0; left: 0; width: 8px; height: 8px;
+  cursor: nwse-resize;
+}
+.resize-se {
+  bottom: 0; right: 0; width: 8px; height: 8px;
+  cursor: nwse-resize;
+}
+.resize-sw {
+  bottom: 0; left: 0; width: 8px; height: 8px;
+  cursor: nesw-resize;
 }
 </style>
