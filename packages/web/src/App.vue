@@ -25,6 +25,25 @@ import MainLayout from './components/layout/MainLayout.vue';
   --statusbar-text: #fff;
   --scrollbar-thumb: #424242;
   --scrollbar-thumb-hover: #555;
+  --agent-msg-assistant-bg: #1a3a5c;
+  --agent-msg-system-bg: #5c1a1a;
+  --agent-code-bg: #0d1117;
+  --agent-code-accent: #e06c75;
+  --agent-thinking-title: #d4a017;
+  --agent-thinking-text: #b8952e;
+  --agent-thinking-surface: rgba(255,200,50,0.05);
+  --agent-thinking-border: rgba(255,200,50,0.2);
+  --agent-blockquote-bg: rgba(255,255,255,0.03);
+  --agent-divider: rgba(255,255,255,0.1);
+  --agent-edit-text: #4ec9b0;
+  --agent-edit-surface: rgba(0,200,100,0.1);
+  --agent-edit-border: rgba(0,200,100,0.3);
+  --agent-edit-badge: rgba(0,200,100,0.15);
+  --agent-undo-text: #d4a017;
+  --agent-undo-surface: rgba(255,200,50,0.15);
+  --agent-undo-border: rgba(255,200,50,0.3);
+  --agent-item-hover: rgba(255,255,255,0.08);
+  --agent-on-accent-text: #fff;
 }
 
 :root[data-theme="light"] {
@@ -41,6 +60,25 @@ import MainLayout from './components/layout/MainLayout.vue';
   --statusbar-text: #3b3b3b;
   --scrollbar-thumb: #c8c8c8;
   --scrollbar-thumb-hover: #a8a8a8;
+  --agent-msg-assistant-bg: #e8f0fe;
+  --agent-msg-system-bg: #fde8e8;
+  --agent-code-bg: #f6f8fa;
+  --agent-code-accent: #cf222e;
+  --agent-thinking-title: #9a7b0b;
+  --agent-thinking-text: #7d6608;
+  --agent-thinking-surface: rgba(180,140,10,0.05);
+  --agent-thinking-border: rgba(180,140,10,0.2);
+  --agent-blockquote-bg: rgba(0,0,0,0.04);
+  --agent-divider: rgba(0,0,0,0.1);
+  --agent-edit-text: #16a34a;
+  --agent-edit-surface: rgba(22,163,74,0.1);
+  --agent-edit-border: rgba(22,163,74,0.25);
+  --agent-edit-badge: rgba(22,163,74,0.12);
+  --agent-undo-text: #92400e;
+  --agent-undo-surface: rgba(146,64,14,0.1);
+  --agent-undo-border: rgba(146,64,14,0.25);
+  --agent-item-hover: rgba(0,0,0,0.06);
+  --agent-on-accent-text: #fff;
 }
 
 :root[data-theme="blue"] {
@@ -57,6 +95,25 @@ import MainLayout from './components/layout/MainLayout.vue';
   --statusbar-text: #fff;
   --scrollbar-thumb: #1f4662;
   --scrollbar-thumb-hover: #2d6194;
+  --agent-msg-assistant-bg: #1a3a5c;
+  --agent-msg-system-bg: #5c1a1a;
+  --agent-code-bg: #0d1117;
+  --agent-code-accent: #e06c75;
+  --agent-thinking-title: #d4a017;
+  --agent-thinking-text: #b8952e;
+  --agent-thinking-surface: rgba(255,200,50,0.05);
+  --agent-thinking-border: rgba(255,200,50,0.2);
+  --agent-blockquote-bg: rgba(255,255,255,0.03);
+  --agent-divider: rgba(255,255,255,0.1);
+  --agent-edit-text: #4ec9b0;
+  --agent-edit-surface: rgba(0,200,100,0.1);
+  --agent-edit-border: rgba(0,200,100,0.3);
+  --agent-edit-badge: rgba(0,200,100,0.15);
+  --agent-undo-text: #d4a017;
+  --agent-undo-surface: rgba(255,200,50,0.15);
+  --agent-undo-border: rgba(255,200,50,0.3);
+  --agent-item-hover: rgba(255,255,255,0.08);
+  --agent-on-accent-text: #fff;
 }
 
 body {

@@ -188,13 +188,13 @@ function pick(id: string) {
   transition: background .12s;
 }
 .menu-item:hover {
-  background: rgba(255,255,255,.08);
+  background: var(--agent-item-hover);
 }
 .menu-item.on {
   background: rgba(0,120,212,.12);
 }
 .menu-item.on .item-model {
-  color: #fff;
+  color: var(--text-primary);
 }
 .item-dot {
   width: 6px;

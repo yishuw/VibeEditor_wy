@@ -67,6 +67,6 @@ defineEmits<{
   transition: color 0.2s ease;
 }
 .mode-option.active {
-  color: #fff;
+  color: var(--agent-on-accent-text);
 }
 </style>

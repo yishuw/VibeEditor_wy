@@ -535,7 +535,7 @@ watch(() => props.visible, (v) => {
 }
 .form-btn.save {
   background: var(--accent-color);
-  color: #fff;
+  color: var(--agent-on-accent-text);
 }
 .form-btn.save:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -627,7 +627,7 @@ watch(() => props.visible, (v) => {
 }
 .empty-cta {
   background: var(--accent-color);
-  color: #fff;
+  color: var(--agent-on-accent-text);
   border: none;
   padding: 8px 24px;
   font-size: 13px;
