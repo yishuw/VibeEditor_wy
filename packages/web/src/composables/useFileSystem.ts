@@ -11,6 +11,7 @@ import {
 } from '../services/fileService';
 import { getEditorInstance } from '../services/editorInstance';
 import { useEditorStore, getViewModeFromPath } from '../stores/editor';
+import { useFileClipboard } from './useFileClipboard';
 
 type DroppedFile = File & { path?: string };
 type DroppedDirectoryItem = DataTransferItem & {
@@ -331,6 +332,89 @@ export function useFileSystem() {
       const client = getClient();
       await client.createDir(name);
       onAfterSave?.(name);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  /** 创建空文件到指定目录 */
+  async function createFileInDir(dirPath: string, fileName: string) {
+    error.value = null;
+    try {
+      const fullPath = dirPath ? dirPath.replace(/\/$/, '') + '/' + fileName : fileName;
+      const { client, relativePath } = resolveClient(fullPath);
+      await client.writeFile(relativePath, '');
+      onAfterSave?.(fullPath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  /** 在指定父目录下创建子文件夹 */
+  async function createDirInPath(parentPath: string, folderName: string) {
+    error.value = null;
+    try {
+      const fullPath = parentPath ? parentPath.replace(/\/$/, '') + '/' + folderName : folderName;
+      const { client, relativePath } = resolveClient(fullPath);
+      await client.createDir(relativePath);
+      onAfterSave?.(fullPath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  /** 重命名文件或文件夹 */
+  async function renameFile(oldPath: string, newName: string) {
+    error.value = null;
+    try {
+      const parentPath = oldPath.replace(/[^/\\]+$/, '');
+      const newPath = parentPath + newName;
+      const { client, relativePath: relOld } = resolveClient(oldPath);
+      const { relativePath: relNew } = resolveClient(newPath);
+      await client.rename(relOld, relNew);
+
+      const openTabs = store.tabs.filter(t => t.path === oldPath);
+      for (const tab of openTabs) {
+        store.setTabPath(tab.id, newPath);
+      }
+      onAfterSave?.(oldPath);
+    } catch (e: any) {
+      error.value = e.message;
+    }
+  }
+
+  const { clipboard, cutItem, copyItem, copyPathToClipboard, copyDirRecursive } = useFileClipboard();
+
+  async function pasteItem(targetDir: string) {
+    const item = clipboard.value;
+    if (!item) return;
+    error.value = null;
+    try {
+      const targetParent = targetDir ? targetDir.replace(/\/$/, '') : '';
+      const targetPath = targetParent ? targetParent + '/' + item.name : item.name;
+
+      if (item.action === 'cut') {
+        const { client, relativePath: relSrc } = resolveClient(item.path);
+        const { relativePath: relTarget } = resolveClient(targetPath);
+        await client.rename(relSrc, relTarget);
+
+        const openTabs = store.tabs.filter(t => t.path === item.path);
+        for (const tab of openTabs) {
+          store.setTabPath(tab.id, targetPath);
+        }
+        clipboard.value = null;
+      } else {
+        const { client, relativePath: relSrc } = resolveClient(item.path);
+        const { client: targetClient, relativePath: relTarget } = resolveClient(targetPath);
+
+        if (item.isDirectory) {
+          await copyDirRecursive(client, targetClient, relSrc, relTarget);
+        } else {
+          const content = await client.readFile(relSrc);
+          await targetClient.writeFile(relTarget, content);
+        }
+      }
+      onAfterSave?.(targetDir || '.');
     } catch (e: any) {
       error.value = e.message;
     }
@@ -667,6 +751,14 @@ export function useFileSystem() {
     undoDelete,
     createFolder,
     readDirForPath,
+    createFileInDir,
+    createDirInPath,
+    renameFile,
+    copyPathToClipboard,
+    clipboard,
+    cutItem,
+    copyItem,
+    pasteItem,
     lastDeleted,
     showUndoNotification,
     setSaveAsHandler,

@@ -1,4 +1,12 @@
 export default {
+  about: {
+    title: '关于',
+    name: '应用名称',
+    version: '版本',
+    author: '作者',
+    description: '一款 AI 代码编辑器，内置 AI Agent 面板，提供智能代码编辑辅助。',
+    repo: '仓库地址',
+  },
   toolbar: {
     showSidebar: '显示侧边栏',
     hideSidebar: '隐藏侧边栏',
@@ -28,6 +36,7 @@ export default {
     replaceShort: 'Ctrl+H',
     toggleAgent: '切换 AI 面板',
     agent: 'AI 助手',
+    help: '帮助',
     appName: 'VibeEditor',
   },
   activityBar: {
@@ -75,6 +84,22 @@ export default {
     noFiles: '没有打开的文件',
     loading: '加载中...',
     deleteFile: '删除文件',
+    renamePrompt: '重命名',
+    newFilePrompt: '新文件名称',
+    newFolderPrompt: '新文件夹名称',
+  },
+  contextMenu: {
+    open: '打开',
+    newFile: '新建文件',
+    newFolder: '新建文件夹',
+    cut: '剪切',
+    copy: '复制',
+    copyRelativePath: '复制相对路径',
+    copyAbsolutePath: '复制绝对路径',
+    paste: '粘贴',
+    rename: '重命名',
+    delete: '删除',
+    refresh: '刷新',
   },
   saveDialog: {
     title: '另存为',

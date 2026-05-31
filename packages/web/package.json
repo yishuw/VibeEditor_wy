@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@imengyu/vue3-context-menu": "^1.5.4",
     "@vibeeditor/agent": "0.1.0",
     "@vibeeditor/core": "0.1.0",
     "@vue-office/excel": "^1.7.14",

@@ -15,7 +15,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   saveFile: (filePath: string, content: string) => ipcRenderer.invoke('dialog:saveFile', filePath, content),
+  getAppInfo: () => ipcRenderer.invoke('app:getInfo'),
   onMenuAction: (callback: (action: string) => void) => {
     ipcRenderer.on('menu:action', (_event, action) => callback(action));
+  },
+  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
+  unmaximizeWindow: () => ipcRenderer.invoke('window:unmaximize'),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
+  isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  getBounds: () => ipcRenderer.invoke('window:getBounds'),
+  resizeWindow: (x: number, y: number, w: number, h: number) => ipcRenderer.invoke('window:resize', x, y, w, h),
+  onMaximizeChange: (callback: (isMaximized: boolean) => void) => {
+    ipcRenderer.on('window:maximizeChange', (_event, isMaximized: boolean) => callback(isMaximized));
   },
 });

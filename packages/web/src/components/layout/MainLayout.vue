@@ -25,6 +25,7 @@
       @edit-replace="handleEditAction('replace')"
       @toggle-agent="showAgent = !showAgent"
       @toggle-sidebar="toggleSidebar"
+      @show-about="showAboutDialog = true"
       :sidebar-collapsed="sidebarCollapsed"
     />
     <div class="main-content">
@@ -53,9 +54,16 @@
                 :expanded-dirs="expandedDirs"
                 :loading-dirs="loadingDirs"
                 :dir-children="dirChildren"
+                :renaming-path="renamingPath"
+                :creating-in-dir="creatingInDir"
+                :creating-node-key="creatingNodeKey"
                 @select-file="fs.openAndReadFile"
                 @expand-dir="handleExpandDir"
                 @delete-file="fs.deleteFile"
+                @contextmenu="handleContextMenu"
+                @confirm-rename="handleConfirmRename"
+                @confirm-create="handleConfirmCreate"
+                @cancel-create="handleCancelCreate"
               />
             </template>
           </SideBar>
@@ -178,6 +186,7 @@
       @confirm="onSaveDialogConfirm"
       @cancel="onSaveDialogCancel"
     />
+    <AboutDialog :visible="showAboutDialog" @close="showAboutDialog = false" />
     <div v-if="isDraggingFolder" class="drop-overlay">
       <div class="drop-message">
         <span class="drop-title">{{ $t('dragOverlay.title') }}</span>
@@ -189,16 +198,29 @@
       <button class="undo-btn" @click="fs.undoDelete()">{{ $t('undoNotification.undo') }}</button>
       <button class="undo-dismiss" @click="fs.showUndoNotification = false">✕</button>
     </div>
+    <template v-if="fs.env === 'electron' && !isMaximized">
+      <div class="resize-handle resize-n" @mousedown="startResize('n' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-s" @mousedown="startResize('s' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-e" @mousedown="startResize('e' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-w" @mousedown="startResize('w' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-ne" @mousedown="startResize('ne' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-nw" @mousedown="startResize('nw' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-se" @mousedown="startResize('se' as ResizeEdge, $event)"></div>
+      <div class="resize-handle resize-sw" @mousedown="startResize('sw' as ResizeEdge, $event)"></div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue';
+import { ref, reactive, watch, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
 import { getEditorInstance } from '../../services/editorInstance';
 import type { ParsedEdit } from '../../services/editParser';
+import { useWindowResize } from '../../composables/useWindowResize';
+import type { ResizeEdge } from '../../composables/useWindowResize';
+import { useFileTreeContextMenu } from '../../composables/useFileTreeContextMenu';
 import Toolbar from '../toolbar/Toolbar.vue';
 import ActivityBar from './ActivityBar.vue';
 import type { ActivityItem } from './ActivityBar.vue';
@@ -218,6 +240,7 @@ import AgentPanel from '../agent/AgentPanel.vue';
 import SettingDropdown from '../settings/SettingDropdown.vue';
 import SaveDialog from '../SaveDialog.vue';
 import StatusBar from '../StatusBar.vue';
+import AboutDialog from './AboutDialog.vue';
 
 const store = useEditorStore();
 const fs = reactive(useFileSystem());
@@ -234,13 +257,15 @@ const isDraggingFolder = ref(false);
 // Drag events fire as the cursor moves across child elements, so count depth.
 let dragDepth = 0;
 
+const { renamingPath, creatingInDir, creatingNodeKey, handleContextMenu, handleConfirmRename, handleConfirmCreate, handleCancelCreate } = useFileTreeContextMenu(fs, store, t, { clearDirState, handleExpandDir });
+
+const isMaximized = ref(false);
+const { startResize, isResizing: isWindowResizing } = useWindowResize();
+
 // ===== 活动栏配置 =====
 const topActivityItems = computed<ActivityItem[]>(() => [
   { id: 'explorer', label: t('activityBar.explorer'), icon: '🗋' },
   { id: 'search', label: t('activityBar.search'), icon: '🔍' },
-  { id: 'source-control', label: t('activityBar.sourceControl'), icon: '⑂' },
-  { id: 'debug', label: t('activityBar.debug'), icon: '🐞' },
-  { id: 'extensions', label: t('activityBar.extensions'), icon: '🧩' },
 ]);
 
 const bottomActivityItems = computed<ActivityItem[]>(() => []);
@@ -293,6 +318,7 @@ let isResizingAgent = false;
 // ===== 另存为对话框状态 =====
 const showSaveDialog = ref(false);
 const saveDialogDefaultName = ref('');
+const showAboutDialog = ref(false);
 let saveDialogResolver: ((value: string | null) => void) | null = null;
 
 // ===== Agent 编辑快照（用于撤销） =====
@@ -551,6 +577,47 @@ async function handleExpandDir(dirPath: string) {
   } catch { /* 忽略读取失败 */ }
   loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
 }
+
+onMounted(async () => {
+  if (window.electronAPI) {
+    isMaximized.value = await window.electronAPI.isMaximized();
+    window.electronAPI.onMaximizeChange((max: boolean) => {
+      isMaximized.value = max;
+    });
+
+    window.electronAPI.onMenuAction((action: string) => {
+      switch (action) {
+        case 'new-file':
+          store.newUntitled();
+          break;
+        case 'new-folder':
+          fs.createFolder();
+          break;
+        case 'open-folder':
+          handleOpenFolder();
+          break;
+        case 'connect-server':
+          handleConnectServer();
+          break;
+        case 'open-local-file':
+          fs.openLocalFile();
+          break;
+        case 'save':
+          fs.saveCurrentFile();
+          break;
+        case 'edit-cut':
+        case 'edit-copy':
+        case 'edit-paste':
+        case 'edit-undo':
+        case 'edit-redo':
+        case 'edit-find':
+        case 'edit-replace':
+          handleEditAction(action.replace('edit-', ''));
+          break;
+      }
+    });
+  }
+});
 
 /** 侧边栏（文件树）宽度拖拽 */
 function startSidebarResize(e: MouseEvent) {
@@ -854,5 +921,41 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 }
 .undo-dismiss:hover {
   color: var(--text-primary);
+}
+.resize-handle {
+  position: fixed;
+  z-index: 9999;
+}
+.resize-n {
+  top: 0; left: 0; right: 0; height: 4px;
+  cursor: ns-resize;
+}
+.resize-s {
+  bottom: 0; left: 0; right: 0; height: 4px;
+  cursor: ns-resize;
+}
+.resize-e {
+  top: 0; right: 0; bottom: 0; width: 4px;
+  cursor: ew-resize;
+}
+.resize-w {
+  top: 0; left: 0; bottom: 0; width: 4px;
+  cursor: ew-resize;
+}
+.resize-ne {
+  top: 0; right: 0; width: 8px; height: 8px;
+  cursor: nesw-resize;
+}
+.resize-nw {
+  top: 0; left: 0; width: 8px; height: 8px;
+  cursor: nwse-resize;
+}
+.resize-se {
+  bottom: 0; right: 0; width: 8px; height: 8px;
+  cursor: nwse-resize;
+}
+.resize-sw {
+  bottom: 0; left: 0; width: 8px; height: 8px;
+  cursor: nesw-resize;
 }
 </style>

@@ -289,9 +289,9 @@ onUnmounted(() => {
 /* ===== 思考内容区域 ===== */
 .msg-thinking {
   margin-bottom: 4px;
-  border: 1px solid rgba(255, 200, 50, 0.2);
+  border: 1px solid var(--agent-thinking-border);
   border-radius: 4px;
-  background: rgba(255, 200, 50, 0.05);
+  background: var(--agent-thinking-surface);
   overflow: hidden;
 }
 
@@ -301,7 +301,7 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 4px 10px;
   font-size: 11px;
-  color: #d4a017;
+  color: var(--agent-thinking-title);
   cursor: pointer;
   user-select: none;
 }
@@ -320,13 +320,13 @@ onUnmounted(() => {
 
 .thinking-body {
   padding: 4px 10px 8px;
-  border-top: 1px solid rgba(255, 200, 50, 0.1);
+  border-top: 1px solid var(--agent-divider);
 }
 
 .thinking-content {
   font-size: 12px;
   line-height: 1.5;
-  color: #b8952e;
+  color: var(--agent-thinking-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -342,7 +342,7 @@ onUnmounted(() => {
 .separator-line {
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--agent-divider);
 }
 
 .separator-label {
@@ -428,10 +428,10 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
 }
 .msg-assistant {
-  background: #1a3a5c;
+  background: var(--agent-msg-assistant-bg);
 }
 .msg-system {
-  background: #5c1a1a;
+  background: var(--agent-msg-system-bg);
 }
 .msg-role {
   font-size: 10px;
@@ -463,7 +463,7 @@ onUnmounted(() => {
   margin: 6px 0 2px;
 }
 .msg-content :deep(pre) {
-  background: #0d1117;
+  background: var(--agent-code-bg);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 8px 10px;
@@ -480,11 +480,11 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
   padding: 1px 4px;
   border-radius: 3px;
-  color: #e06c75;
+  color: var(--agent-code-accent);
 }
 .msg-content :deep(strong) {
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
 }
 .msg-content :deep(em) {
   font-style: italic;
@@ -509,7 +509,7 @@ onUnmounted(() => {
   margin: 6px 0;
   padding: 4px 10px;
   color: var(--text-secondary);
-  background: rgba(255,255,255,0.03);
+  background: var(--agent-blockquote-bg);
 }
 .msg-content :deep(hr) {
   border: none;
@@ -519,18 +519,18 @@ onUnmounted(() => {
 .edit-summary {
   margin-top: 8px;
   padding: 6px 8px;
-  background: rgba(0, 200, 100, 0.1);
-  border: 1px solid rgba(0, 200, 100, 0.3);
+  background: var(--agent-edit-surface);
+  border: 1px solid var(--agent-edit-border);
   border-radius: 4px;
   font-size: 11px;
-  color: #4ec9b0;
+  color: var(--agent-edit-text);
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   align-items: center;
 }
 .edit-file {
-  background: rgba(0, 200, 100, 0.15);
+  background: var(--agent-edit-badge);
   padding: 1px 6px;
   border-radius: 3px;
   font-family: 'Consolas', 'Courier New', monospace;
@@ -538,9 +538,9 @@ onUnmounted(() => {
 }
 .undo-btn {
   margin-left: auto;
-  background: rgba(255, 200, 50, 0.15);
-  border: 1px solid rgba(255, 200, 50, 0.3);
-  color: #d4a017;
+  background: var(--agent-undo-surface);
+  border: 1px solid var(--agent-undo-border);
+  color: var(--agent-undo-text);
   padding: 2px 8px;
   font-size: 10px;
   cursor: pointer;
@@ -548,7 +548,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .undo-btn:hover {
-  background: rgba(255, 200, 50, 0.25);
+  background: var(--agent-undo-border);
 }
 .agent-input-area {
   display: flex;

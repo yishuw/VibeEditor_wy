@@ -1,5 +1,5 @@
 <template>
-  <div class="toolbar">
+  <div class="toolbar" @dblclick="handleToolbarDblClick">
     <div class="toolbar-left">
       <button class="toolbar-btn toolbar-toggle-btn" :title="sidebarCollapsed ? $t('toolbar.showSidebar') : $t('toolbar.hideSidebar')" @click="$emit('toggle-sidebar')">
         <span class="sidebar-toggle-icon">☰</span>
@@ -72,6 +72,17 @@
           </button>
         </div>
       </div>
+      <div class="dropdown">
+        <button class="toolbar-btn dropdown-trigger">
+          {{ $t('toolbar.help') }}
+          <span class="dropdown-arrow">▾</span>
+        </button>
+        <div class="dropdown-menu">
+          <button class="dropdown-item" @click="$emit('show-about')">
+            {{ $t('about.title') }}
+          </button>
+        </div>
+      </div>
     </div>
     <div class="toolbar-center">
       <span class="toolbar-title">{{ $t('toolbar.appName') }}</span>
@@ -83,12 +94,33 @@
       <button class="toolbar-btn toolbar-agent-btn" :title="$t('toolbar.toggleAgent')" @click="$emit('toggle-agent')">
         {{ $t('toolbar.agent') }}
       </button>
+      <div v-if="env === 'electron'" class="window-controls">
+        <button class="win-btn win-minimize" title="Minimize" @click="handleMinimize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect y="4" width="10" height="1" fill="currentColor"/></svg>
+        </button>
+        <button class="win-btn win-maximize" :title="isMaximized ? 'Restore' : 'Maximize'" @click="handleToggleMaximize">
+          <svg v-if="isMaximized" width="10" height="10" viewBox="0 0 10 10">
+            <rect x="1" y="2" width="7" height="6" fill="none" stroke="currentColor" stroke-width="1"/>
+            <rect x="3" y="0" width="7" height="6" fill="var(--bg-tertiary)" stroke="currentColor" stroke-width="1"/>
+          </svg>
+          <svg v-else width="10" height="10" viewBox="0 0 10 10">
+            <rect x="1" y="1" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1"/>
+          </svg>
+        </button>
+        <button class="win-btn win-close" title="Close" @click="handleClose">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { WorkspaceMode } from '../../stores/editor';
+import { ref, onMounted } from 'vue';
 
 defineProps<{
   env: string;
@@ -112,7 +144,44 @@ defineEmits<{
   'edit-redo': [];
   'edit-find': [];
   'edit-replace': [];
+  'show-about': [];
 }>();
+
+
+const isMaximized = ref(false);
+
+onMounted(async () => {
+  if (window.electronAPI) {
+    isMaximized.value = await window.electronAPI.isMaximized();
+    window.electronAPI.onMaximizeChange((max: boolean) => {
+      isMaximized.value = max;
+    });
+  }
+});
+
+function handleMinimize() {
+  window.electronAPI?.minimizeWindow();
+}
+
+async function handleToggleMaximize() {
+  const api = window.electronAPI;
+  if (!api) return;
+  if (await api.isMaximized()) {
+    api.unmaximizeWindow();
+  } else {
+    api.maximizeWindow();
+  }
+}
+
+function handleClose() {
+  window.electronAPI?.closeWindow();
+}
+
+function handleToolbarDblClick() {
+  if (window.electronAPI) {
+    handleToggleMaximize();
+  }
+}
 </script>
 
 <style scoped>
@@ -126,16 +195,19 @@ defineEmits<{
   padding: 0 4px;
   flex-shrink: 0;
   user-select: none;
+  -webkit-app-region: drag;
 }
 .toolbar-left {
   display: flex;
   align-items: center;
   height: 100%;
+  -webkit-app-region: no-drag;
 }
 .toolbar-right {
   display: flex;
   align-items: center;
   height: 100%;
+  -webkit-app-region: no-drag;
 }
 .toolbar-center {
   display: flex;
@@ -170,6 +242,7 @@ defineEmits<{
   height: 24px;
   line-height: 18px;
   outline: none;
+  -webkit-app-region: no-drag;
 }
 .toolbar-btn:hover {
   background: rgba(255, 255, 255, 0.06);
@@ -197,6 +270,7 @@ defineEmits<{
   position: relative;
   display: flex;
   align-items: center;
+  -webkit-app-region: no-drag;
 }
 .dropdown::after {
   content: '';
@@ -204,33 +278,8 @@ defineEmits<{
   top: 100%;
   left: 0;
   right: 0;
-  height: 4px;
-}
-.dropdown-arrow {
-  font-size: 8px;
-  opacity: 0.6;
-}
-.dropdown-menu {
-  display: none;
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 180px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 100;
-  padding: 4px 0;
-}
-.dropdown:hover .dropdown-menu,
-.dropdown-menu:hover {
-  display: block;
-}
-.dropdown-trigger {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+  height: 8px;
+  pointer-events: auto;
 }
 .dropdown-arrow {
   font-size: 8px;
@@ -279,5 +328,33 @@ defineEmits<{
   height: 1px;
   background: var(--border-color);
   margin: 4px 8px;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin-left: auto;
+}
+.win-btn {
+  width: 46px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  -webkit-app-region: no-drag;
+}
+.win-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+.win-close:hover {
+  background: #e81123;
+  color: #fff;
 }
 </style>

@@ -1,4 +1,12 @@
 export default {
+  about: {
+    title: 'About',
+    name: 'Application',
+    version: 'Version',
+    author: 'Author',
+    description: 'An AI-powered code editor inspired by VS Code, with built-in agent panel for intelligent code editing assistance.',
+    repo: 'Repository',
+  },
   toolbar: {
     showSidebar: 'Show Sidebar',
     hideSidebar: 'Hide Sidebar',
@@ -28,6 +36,7 @@ export default {
     replaceShort: 'Ctrl+H',
     toggleAgent: 'Toggle Agent Panel',
     agent: 'Agent',
+    help: 'Help',
     appName: 'VibeEditor',
   },
   activityBar: {
@@ -75,6 +84,22 @@ export default {
     noFiles: 'No files open',
     loading: 'Loading...',
     deleteFile: 'Delete file',
+    renamePrompt: 'Rename',
+    newFilePrompt: 'New file name',
+    newFolderPrompt: 'New folder name',
+  },
+  contextMenu: {
+    open: 'Open',
+    newFile: 'New File',
+    newFolder: 'New Folder',
+    cut: 'Cut',
+    copy: 'Copy',
+    copyRelativePath: 'Copy Relative Path',
+    copyAbsolutePath: 'Copy Absolute Path',
+    paste: 'Paste',
+    rename: 'Rename',
+    delete: 'Delete',
+    refresh: 'Refresh',
   },
   saveDialog: {
     title: 'Save File As',
