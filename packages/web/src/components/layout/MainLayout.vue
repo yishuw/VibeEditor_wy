@@ -25,6 +25,7 @@
       @edit-replace="handleEditAction('replace')"
       @toggle-agent="showAgent = !showAgent"
       @toggle-sidebar="toggleSidebar"
+      @show-about="showAboutDialog = true"
       :sidebar-collapsed="sidebarCollapsed"
     />
     <div class="main-content">
@@ -59,7 +60,7 @@
                 @select-file="fs.openAndReadFile"
                 @expand-dir="handleExpandDir"
                 @delete-file="fs.deleteFile"
-                @contextmenu="handleFileTreeContextMenu"
+                @contextmenu="handleContextMenu"
                 @confirm-rename="handleConfirmRename"
                 @confirm-create="handleConfirmCreate"
                 @cancel-create="handleCancelCreate"
@@ -185,6 +186,7 @@
       @confirm="onSaveDialogConfirm"
       @cancel="onSaveDialogCancel"
     />
+    <AboutDialog :visible="showAboutDialog" @close="showAboutDialog = false" />
     <div v-if="isDraggingFolder" class="drop-overlay">
       <div class="drop-message">
         <span class="drop-title">{{ $t('dragOverlay.title') }}</span>
@@ -216,10 +218,9 @@ import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
 import { getEditorInstance } from '../../services/editorInstance';
 import type { ParsedEdit } from '../../services/editParser';
-import { showFileTreeContextMenu } from '../file-tree/contextMenu';
-import type { ContextMenuHandlers } from '../file-tree/contextMenu';
 import { useWindowResize } from '../../composables/useWindowResize';
 import type { ResizeEdge } from '../../composables/useWindowResize';
+import { useFileTreeContextMenu } from '../../composables/useFileTreeContextMenu';
 import Toolbar from '../toolbar/Toolbar.vue';
 import ActivityBar from './ActivityBar.vue';
 import type { ActivityItem } from './ActivityBar.vue';
@@ -239,6 +240,7 @@ import AgentPanel from '../agent/AgentPanel.vue';
 import SettingDropdown from '../settings/SettingDropdown.vue';
 import SaveDialog from '../SaveDialog.vue';
 import StatusBar from '../StatusBar.vue';
+import AboutDialog from './AboutDialog.vue';
 
 const store = useEditorStore();
 const fs = reactive(useFileSystem());
@@ -255,9 +257,7 @@ const isDraggingFolder = ref(false);
 // Drag events fire as the cursor moves across child elements, so count depth.
 let dragDepth = 0;
 
-const renamingPath = ref<string | null>(null);
-const creatingInDir = ref<{ path: string; type: 'file' | 'folder' } | null>(null);
-const creatingNodeKey = ref(0);
+const { renamingPath, creatingInDir, creatingNodeKey, handleContextMenu, handleConfirmRename, handleConfirmCreate, handleCancelCreate } = useFileTreeContextMenu(fs, store, t, { clearDirState, handleExpandDir });
 
 const isMaximized = ref(false);
 const { startResize, isResizing: isWindowResizing } = useWindowResize();
@@ -318,6 +318,7 @@ let isResizingAgent = false;
 // ===== 另存为对话框状态 =====
 const showSaveDialog = ref(false);
 const saveDialogDefaultName = ref('');
+const showAboutDialog = ref(false);
 let saveDialogResolver: ((value: string | null) => void) | null = null;
 
 // ===== Agent 编辑快照（用于撤销） =====
@@ -575,79 +576,6 @@ async function handleExpandDir(dirPath: string) {
     dirChildren.value = { ...dirChildren.value, [dirPath]: resolved };
   } catch { /* 忽略读取失败 */ }
   loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
-}
-
-function handleFileTreeContextMenu(payload: {
-  type: 'file' | 'folder' | 'root';
-  path: string;
-  name: string;
-  event: MouseEvent;
-}) {
-  const handlers: ContextMenuHandlers = {
-    onOpen: (path) => fs.openAndReadFile(path),
-    onRename: (path) => {
-      renamingPath.value = path;
-    },
-    onDelete: (path) => fs.deleteFile(path),
-    onNewFile: (dirPath) => {
-      creatingInDir.value = { path: dirPath || '', type: 'file' };
-      creatingNodeKey.value++;
-    },
-    onNewFolder: (dirPath) => {
-      creatingInDir.value = { path: dirPath || '', type: 'folder' };
-      creatingNodeKey.value++;
-    },
-    onCut: (path, isDir, name) => fs.cutItem(path, isDir, name),
-    onCopy: (path, isDir, name) => fs.copyItem(path, isDir, name),
-    onPaste: (dirPath) => fs.pasteItem(dirPath),
-    onCopyRelativePath: (path) => fs.copyPathToClipboard(path),
-    onCopyAbsolutePath: (path) => {
-      const root = store.workspaceRoot;
-      const absPath = root && (root.startsWith('/') || /^[A-Z]:[\\/]/i.test(root))
-        ? root.replace(/[\\/]?$/, '/') + path
-        : path;
-      fs.copyPathToClipboard(absPath);
-    },
-    onRefresh: () => {
-      clearDirState();
-      fs.loadDirectory('.').then(() => {
-        if (store.fileTreeNodes.length > 0 && store.fileTreeNodes[0]?.isDirectory) {
-          handleExpandDir(store.fileTreeNodes[0].path);
-        }
-      });
-    },
-  };
-
-  showFileTreeContextMenu(
-    payload.type,
-    payload.path,
-    payload.name,
-    payload.event,
-    handlers,
-    fs.clipboard,
-    t,
-  );
-}
-
-async function handleConfirmRename(oldPath: string, newName: string) {
-  renamingPath.value = null;
-  if (newName === oldPath.replace(/^.*[/\\]/, '')) return;
-  await fs.renameFile(oldPath, newName);
-}
-
-async function handleConfirmCreate(parentPath: string, name: string, type: 'file' | 'folder') {
-  creatingInDir.value = null;
-  creatingNodeKey.value++;
-  if (type === 'folder') {
-    await fs.createDirInPath(parentPath, name);
-  } else {
-    await fs.createFileInDir(parentPath, name);
-  }
-}
-
-function handleCancelCreate() {
-  creatingInDir.value = null;
-  creatingNodeKey.value++;
 }
 
 onMounted(async () => {

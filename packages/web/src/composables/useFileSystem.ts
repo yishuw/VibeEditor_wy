@@ -11,6 +11,7 @@ import {
 } from '../services/fileService';
 import { getEditorInstance } from '../services/editorInstance';
 import { useEditorStore, getViewModeFromPath } from '../stores/editor';
+import { useFileClipboard } from './useFileClipboard';
 
 type DroppedFile = File & { path?: string };
 type DroppedDirectoryItem = DataTransferItem & {
@@ -382,25 +383,7 @@ export function useFileSystem() {
     }
   }
 
-  /** 复制路径到剪贴板 */
-  async function copyPathToClipboard(path: string) {
-    try {
-      await navigator.clipboard.writeText(path);
-    } catch {
-      // 剪贴板不可用
-    }
-  }
-
-  // 剪切板状态
-  const clipboard = ref<{ action: 'cut' | 'copy'; path: string; isDirectory: boolean; name: string } | null>(null);
-
-  function cutItem(path: string, isDirectory: boolean, name: string) {
-    clipboard.value = { action: 'cut', path, isDirectory, name };
-  }
-
-  function copyItem(path: string, isDirectory: boolean, name: string) {
-    clipboard.value = { action: 'copy', path, isDirectory, name };
-  }
+  const { clipboard, cutItem, copyItem, copyPathToClipboard, copyDirRecursive } = useFileClipboard();
 
   async function pasteItem(targetDir: string) {
     const item = clipboard.value;
@@ -434,26 +417,6 @@ export function useFileSystem() {
       onAfterSave?.(targetDir || '.');
     } catch (e: any) {
       error.value = e.message;
-    }
-  }
-
-  async function copyDirRecursive(
-    srcClient: FileServiceClient,
-    targetClient: FileServiceClient,
-    srcPath: string,
-    targetPath: string,
-  ) {
-    await targetClient.createDir(targetPath);
-    const entries = await srcClient.readDir(srcPath);
-    for (const entry of entries) {
-      const childSrc = srcPath + '/' + entry.path;
-      const childTarget = targetPath + '/' + entry.path;
-      if (entry.isDirectory) {
-        await copyDirRecursive(srcClient, targetClient, childSrc, childTarget);
-      } else {
-        const content = await srcClient.readFile(childSrc);
-        await targetClient.writeFile(childTarget, content);
-      }
     }
   }
 

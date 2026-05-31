@@ -4,6 +4,8 @@ export default {
     name: '应用名称',
     version: '版本',
     author: '作者',
+    description: '一款 AI 代码编辑器，内置 AI Agent 面板，提供智能代码编辑辅助。',
+    repo: '仓库地址',
   },
   toolbar: {
     showSidebar: '显示侧边栏',
@@ -34,6 +36,7 @@ export default {
     replaceShort: 'Ctrl+H',
     toggleAgent: '切换 AI 面板',
     agent: 'AI 助手',
+    help: '帮助',
     appName: 'VibeEditor',
   },
   activityBar: {

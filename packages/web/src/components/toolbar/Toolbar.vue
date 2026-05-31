@@ -74,22 +74,13 @@
       </div>
       <div class="dropdown">
         <button class="toolbar-btn dropdown-trigger">
-          {{ $t('about.title') }}
+          {{ $t('toolbar.help') }}
           <span class="dropdown-arrow">▾</span>
         </button>
         <div class="dropdown-menu">
-          <div class="dropdown-item dropdown-item-info">
-            <span>{{ $t('about.name') }}</span>
-            <span class="dropdown-shortcut">{{ appInfo.name }}</span>
-          </div>
-          <div class="dropdown-item dropdown-item-info">
-            <span>{{ $t('about.version') }}</span>
-            <span class="dropdown-shortcut">v{{ appInfo.version }}</span>
-          </div>
-          <div class="dropdown-item dropdown-item-info">
-            <span>{{ $t('about.author') }}</span>
-            <span class="dropdown-shortcut">{{ appInfo.author }}</span>
-          </div>
+          <button class="dropdown-item" @click="$emit('show-about')">
+            {{ $t('about.title') }}
+          </button>
         </div>
       </div>
     </div>
@@ -131,8 +122,6 @@
 import type { WorkspaceMode } from '../../stores/editor';
 import { ref, onMounted } from 'vue';
 
-const appInfo = __APP_INFO__;
-
 defineProps<{
   env: string;
   workspaceMode: WorkspaceMode;
@@ -155,7 +144,9 @@ defineEmits<{
   'edit-redo': [];
   'edit-find': [];
   'edit-replace': [];
+  'show-about': [];
 }>();
+
 
 const isMaximized = ref(false);
 
@@ -287,7 +278,8 @@ function handleToolbarDblClick() {
   top: 100%;
   left: 0;
   right: 0;
-  height: 4px;
+  height: 8px;
+  pointer-events: auto;
 }
 .dropdown-arrow {
   font-size: 8px;

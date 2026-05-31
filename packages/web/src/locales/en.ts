@@ -4,6 +4,8 @@ export default {
     name: 'Application',
     version: 'Version',
     author: 'Author',
+    description: 'An AI-powered code editor inspired by VS Code, with built-in agent panel for intelligent code editing assistance.',
+    repo: 'Repository',
   },
   toolbar: {
     showSidebar: 'Show Sidebar',
@@ -34,6 +36,7 @@ export default {
     replaceShort: 'Ctrl+H',
     toggleAgent: 'Toggle Agent Panel',
     agent: 'Agent',
+    help: 'Help',
     appName: 'VibeEditor',
   },
   activityBar: {
