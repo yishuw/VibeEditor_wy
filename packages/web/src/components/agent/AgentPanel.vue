@@ -1,7 +1,36 @@
 <template>
   <div class="agent-panel">
+    <!-- 会话标签栏 -->
+    <div class="session-tabs-bar">
+      <button class="session-new-btn" @click="createNewSession" :title="$t('agent.newSession')">+</button>
+      <div class="session-tabs-scroll" ref="tabsScrollRef" @wheel="onTabsWheel" @scroll="updateScrollState">
+        <div
+          v-for="s in sessionStore.sessions"
+          :key="s.id"
+          class="session-tab"
+          :class="{ active: s.id === sessionStore.activeSessionId }"
+          @click="sessionStore.setActiveSession(s.id)"
+        >
+          <span class="session-tab-name" :title="s.name">{{ s.name }}</span>
+          <span class="session-tab-close" @click.stop="handleCloseSession(s.id)">×</span>
+        </div>
+      </div>
+      <template v-if="hasOverflow">
+        <button
+          class="session-scroll-btn"
+          :class="{ disabled: !canScrollLeft }"
+          @click="scrollTabs(-1)"
+        >◀</button>
+        <button
+          class="session-scroll-btn"
+          :class="{ disabled: !canScrollRight }"
+          @click="scrollTabs(1)"
+        >▶</button>
+      </template>
+    </div>
+
     <!-- 思考进度条 —— 处理时在面板最上方滚动 -->
-    <div v-if="agent.isProcessing.value" class="thinking-progress">
+    <div v-if="activeAgent?.isProcessing.value" class="thinking-progress">
       <div class="thinking-progress-bar"></div>
     </div>
 
@@ -16,56 +45,130 @@
       <button class="guide-cta" @click="showSettings = true">{{ $t('agent.addProvider') }}</button>
     </div>
 
-    <!-- 有提供商时显示正常的聊天界面 -->
-    <template v-if="providerSettings.providers.value.length > 0">
-      <!-- 消息列表 -->
+    <!-- 无活跃会话时的提示 -->
+    <div v-else-if="!activeAgent" class="agent-guide">
+      <div class="guide-icon">+</div>
+      <div class="guide-title">{{ $t('agent.noSessionPrompt') }}</div>
+      <button class="guide-cta" @click="createNewSession">{{ $t('agent.newSession') }}</button>
+    </div>
+
+    <!-- 有提供商且有活跃会话时显示正常的聊天界面 -->
+    <template v-else>
+      <!-- 消息列表 —— 时间轴布局 -->
       <div class="agent-messages" ref="messagesContainer">
-        <div v-if="agent.messages.value.length === 0" class="agent-empty">
+        <div v-if="activeAgent.messages.value.length === 0" class="agent-empty">
           {{ $t('agent.emptyChat') }}
         </div>
-        <div
-          v-for="msg in agent.messages.value"
-          :key="msg.id"
-          class="agent-message"
-          :class="'msg-' + msg.role"
-        >
-          <div class="msg-role">{{ msg.role }}</div>
 
-          <!-- 思考过程 —— 可折叠，与最终结果有视觉区分 -->
-          <div v-if="msg.thinking" class="msg-thinking">
-            <div class="thinking-header" @click="toggleThinking(msg.id)">
-              <span class="thinking-indicator">&#9881; {{ $t('agent.reasoning') }}</span>
-              <span class="thinking-toggle">{{ expandedThinking[msg.id] ? '&#9650;' : '&#9660;' }}</span>
-            </div>
-            <div v-if="expandedThinking[msg.id]" class="thinking-body">
-              <div class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
+        <template v-for="msg in activeAgent.messages.value" :key="msg.id">
+          <!-- 用户消息 —— 右对齐，不在时间轴上 -->
+          <div v-if="msg.role === 'user'" class="user-msg-row">
+            <div class="user-msg-bubble">
+              <div class="user-msg-content" v-html="renderMarkdown(msg.content)"></div>
             </div>
           </div>
 
-          <!-- 思考→结果分隔线 -->
-          <div v-if="msg.thinking && msg.content" class="thinking-separator">
-            <span class="separator-line"></span>
-            <span class="separator-label">{{ $t('agent.response') }}</span>
-            <span class="separator-line"></span>
+          <!-- 助手消息：按 blocks 顺序渲染，在时间轴上 -->
+          <div v-if="msg.role === 'assistant'" class="timeline">
+            <!-- 有 blocks 时使用 blocks 渲染 -->
+            <template v-if="msg.blocks && msg.blocks.length > 0">
+              <div
+                v-for="block in msg.blocks"
+                :key="block.id"
+                class="tl-node"
+                :class="{
+                  'tl-thinking': block.type === 'thinking',
+                  'tl-response': block.type === 'response',
+                  'tl-tool': block.type === 'tool_call',
+                  'tl-tool-running': block.type === 'tool_call' && !block.completed,
+                  'tl-tool-done': block.type === 'tool_call' && block.completed,
+                }"
+              >
+                <!-- 思考块 -->
+                <template v-if="block.type === 'thinking'">
+                  <div class="tl-dot tl-dot-thinking"></div>
+                  <div class="tl-body">
+                    <div class="tl-thinking-header" @click="toggleBlock(block.id)">
+                      <span class="tl-thinking-label">💭 {{ $t('agent.reasoning') }}</span>
+                      <span class="tl-thinking-toggle">{{ expandedState[block.id] ? '▾' : '▸' }}</span>
+                    </div>
+                    <div class="tl-thinking-body" :class="{ expanded: expandedState[block.id] }">
+                      <div class="tl-thinking-content" v-html="renderMarkdown(block.content)"></div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 工具调用块 —— 默认折叠 -->
+                <template v-else-if="block.type === 'tool_call'">
+                  <div class="tl-dot tl-dot-tool"></div>
+                  <div class="tl-body">
+                    <div class="tl-tool-header" @click="toggleBlock(block.id)">
+                      <span class="tl-tool-icon">{{ block.completed ? '✅' : '⏳' }}</span>
+                      <span class="tl-tool-type">{{ block.toolType }}</span>
+                      <span v-if="block.toolLabel" class="tl-tool-label">{{ block.toolLabel }}</span>
+                      <span class="tl-tool-toggle">{{ expandedState[block.id] ? '▾' : '▸' }}</span>
+                    </div>
+                    <div v-if="block.content" class="tl-tool-result" :class="{ expanded: expandedState[block.id] }">
+                      <pre>{{ block.content }}</pre>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 回复块 -->
+                <template v-else-if="block.type === 'response'">
+                  <div class="tl-dot tl-dot-response"></div>
+                  <div class="tl-body">
+                    <div class="tl-content" v-html="renderMarkdown(cleanBlockContent(block.content))"></div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <!-- 无 blocks 时回退到旧版渲染 -->
+            <template v-else>
+              <div v-if="msg.thinking" class="tl-node tl-thinking">
+                <div class="tl-dot tl-dot-thinking"></div>
+                <div class="tl-body">
+                  <div class="tl-thinking-header" @click="toggleBlock(msg.id)">
+                    <span class="tl-thinking-label">💭 {{ $t('agent.reasoning') }}</span>
+                    <span class="tl-thinking-toggle">{{ expandedState[msg.id] ? '▾' : '▸' }}</span>
+                  </div>
+                  <div class="tl-thinking-body" :class="{ expanded: expandedState[msg.id] }">
+                    <div class="tl-thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
+                  </div>
+                </div>
+              </div>
+              <div v-if="msg.content" class="tl-node tl-response">
+                <div class="tl-dot tl-dot-response"></div>
+                <div class="tl-body">
+                  <div class="tl-content" v-html="renderMarkdown(cleanContent(msg))"></div>
+                </div>
+              </div>
+            </template>
+
+            <!-- 编辑摘要节点 -->
+            <div v-if="msg.editOperations && msg.editOperations.length > 0" class="tl-node tl-edit">
+              <div class="tl-dot tl-dot-edit"></div>
+              <div class="tl-body">
+                <div class="tl-edit-summary">
+                  <span>{{ msg.editOperations.length }}{{ $t('agent.filesModified') }}</span>
+                  <span v-for="e in msg.editOperations" :key="e.path" class="tl-edit-file">{{ e.path }}</span>
+                  <button class="tl-undo-btn" @click="emit('undo-edits')">{{ $t('agent.undo') }}</button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div class="msg-content" v-html="renderMarkdown(msg.content)"></div>
-          <div v-if="msg.editOperations && msg.editOperations.length > 0" class="edit-summary">
-            {{ msg.editOperations.length }}{{ $t('agent.filesModified') }}
-            <span v-for="e in msg.editOperations" :key="e.path" class="edit-file">{{ e.path }}</span>
-            <button class="undo-btn" @click="emit('undo-edits')">{{ $t('agent.undo') }}</button>
+          <!-- 系统消息（错误等） -->
+          <div v-if="msg.role === 'system'" class="timeline">
+            <div class="tl-node tl-system">
+              <div class="tl-dot tl-dot-system"></div>
+              <div class="tl-body">
+                <div class="tl-content" v-html="renderMarkdown(msg.content)"></div>
+              </div>
+            </div>
           </div>
-        </div>
-
-        <!-- 处理中指示：正在思考时显示动画，执行工具时显示工具状态 -->
-        <div v-if="agent.isProcessing.value" class="agent-loading">
-          <template v-if="agent.thinkingActive.value">
-            <span class="thinking-pulse"></span> {{ $t('agent.thinking') }}
-          </template>
-          <template v-else-if="agent.toolStatus.value">
-            {{ agent.toolStatus.value }}
-          </template>
-        </div>
+        </template>
       </div>
 
       <!-- 输入区域拖拽手柄 -->
@@ -82,7 +185,7 @@
           @keydown.ctrl.enter.prevent="send"
           @keydown.meta.enter.prevent="send"
         ></textarea>
-        <button class="agent-send-btn" @click="send" :disabled="!input.trim() || agent.isProcessing.value">
+        <button class="agent-send-btn" @click="send" :disabled="!input.trim() || (activeAgent?.isProcessing.value ?? false)">
           {{ $t('agent.send') }}
         </button>
       </div>
@@ -97,7 +200,7 @@
           />
           <button class="settings-btn" :title="$t('agent.providerSettings')" @click="showSettings = true">&#9881;</button>
         </div>
-        <ModeSelector v-model="agent.config.value.mode" />
+        <ModeSelector v-model="currentMode" />
       </div>
     </template>
 
@@ -107,27 +210,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, nextTick, onMounted, onUnmounted } from 'vue';
-import { useAgent } from '../../composables/useAgent';
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue';
+import { useSessionStore } from '../../stores/sessions';
 import { useProviderSettings } from '../../composables/useProviderSettings';
 import { useEditorStore } from '../../stores/editor';
 import { renderMarkdown } from '../../services/markdown';
-import type { FileServiceClient } from '../../services/fileService';
+import type { ChatMessage } from '../../composables/useAgent';
 import type { ParsedEdit } from '../../services/editParser';
 import SettingsDialog from './SettingsDialog.vue';
 import ModeSelector from './ModeSelector.vue';
 import ProviderSelect from './ProviderSelect.vue';
 
-const props = defineProps<{
-  fileClient?: FileServiceClient | null;
-}>();
+const props = defineProps<{}>();
 
 const emit = defineEmits<{
   'apply-edits': [edits: ParsedEdit[]]
   'undo-edits': []
 }>();
 
-const agent = useAgent();
+const sessionStore = useSessionStore();
 const providerSettings = useProviderSettings();
 const editorStore = useEditorStore();
 const input = ref('');
@@ -136,11 +237,74 @@ const showSettings = ref(false);
 const inputHeight = ref(90);
 let isResizingInput = false;
 
-// 思考内容展开/折叠状态
-const expandedThinking = reactive<Record<string, boolean>>({});
+// 从 store 获取当前活跃的 agent 实例
+const activeAgent = computed(() => sessionStore.activeAgent);
 
-function toggleThinking(msgId: string) {
-  expandedThinking[msgId] = !expandedThinking[msgId];
+// ModeSelector 的 writable computed —— 解决 activeAgent 可能为 null 的问题
+const currentMode = computed({
+  get: () => activeAgent.value?.config.value.mode ?? 'plan',
+  set: (val) => {
+    if (activeAgent.value) {
+      activeAgent.value.config.value.mode = val;
+    }
+  },
+});
+
+// --- 会话标签栏滚动控制 ---
+const tabsScrollRef = ref<HTMLElement>();
+const hasOverflow = ref(false);
+const canScrollLeft = ref(false);
+const canScrollRight = ref(false);
+
+function updateScrollState() {
+  const el = tabsScrollRef.value;
+  if (!el) return;
+  hasOverflow.value = el.scrollWidth > el.clientWidth;
+  canScrollLeft.value = el.scrollLeft > 0;
+  canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+}
+
+function scrollTabs(direction: 1 | -1) {
+  const el = tabsScrollRef.value;
+  if (!el) return;
+  el.scrollBy({ left: direction * 200, behavior: 'smooth' });
+}
+
+function onTabsWheel(e: WheelEvent) {
+  const el = tabsScrollRef.value;
+  if (!el) return;
+  e.preventDefault();
+  el.scrollBy({ left: e.deltaY, behavior: 'auto' });
+}
+
+function createNewSession() {
+  sessionStore.createSession();
+  nextTick(() => updateScrollState());
+}
+
+function handleCloseSession(id: string) {
+  sessionStore.closeSession(id);
+  nextTick(() => updateScrollState());
+}
+
+// --- 块展开/折叠状态 ---
+const expandedState = reactive<Record<string, boolean>>({});
+
+function toggleBlock(blockId: string) {
+  expandedState[blockId] = !expandedState[blockId];
+}
+
+/** 清理消息内容，移除工具结果标记 */
+function cleanContent(msg: ChatMessage): string {
+  let text = msg.content;
+  text = text.replace(/\n?\*\*\[Tool:[^\]]+\]\*\*\n[\s\S]*?(?=\n?\*\*\[Tool:|$)/g, '');
+  text = text.replace(/<(\w+)[^>]*\/>/g, '');
+  return text.trim();
+}
+
+/** 清理单个块的内容，移除工具 XML 标签 */
+function cleanBlockContent(content: string): string {
+  return content.replace(/<(\w+)[^>]*\/>/g, '').trim();
 }
 
 // ===== 自动滚动控制 =====
@@ -172,6 +336,8 @@ function onMessagesScroll() {
   userScrolledUp.value = !isNearBottom();
 }
 
+let ro: ResizeObserver | null = null;
+
 function setupObserver() {
   const el = messagesContainer.value;
   if (!el) return;
@@ -186,11 +352,19 @@ function setupObserver() {
 }
 
 async function send() {
+  const agent = activeAgent.value;
+  if (!agent) return;
+
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
 
   userScrolledUp.value = false;
+
+  // 自动从首条消息命名会话
+  if (sessionStore.activeSession && !sessionStore.activeSession.nameAutoGenerated) {
+    sessionStore.autoNameFromFirstMessage(sessionStore.activeSession.id, text);
+  }
 
   const activeFilePath = editorStore.activeTab?.path;
 
@@ -198,14 +372,15 @@ async function send() {
     text,
     providerSettings.activeProvider.value,
     () => scheduleScroll(false),
-    activeFilePath,
-    props.fileClient
+    activeFilePath
   );
 
   await nextTick();
   scrollToBottom();
 
   await streamPromise;
+
+  sessionStore.saveCurrentSession();
 
   if (agent.lastEdits.value.length > 0) {
     emit('apply-edits', [...agent.lastEdits.value]);
@@ -238,11 +413,20 @@ function startInputResize(e: MouseEvent) {
 onMounted(() => {
   messagesContainer.value?.addEventListener('scroll', onMessagesScroll);
   setupObserver();
+
+  // 标签栏溢出检测
+  const scrollEl = tabsScrollRef.value;
+  if (scrollEl) {
+    ro = new ResizeObserver(() => updateScrollState());
+    ro.observe(scrollEl);
+    updateScrollState();
+  }
 });
 
 onUnmounted(() => {
   cancelAnimationFrame(scrollRafId);
   observer?.disconnect();
+  ro?.disconnect();
   messagesContainer.value?.removeEventListener('scroll', onMessagesScroll);
 });
 </script>
@@ -257,10 +441,111 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+/* ===== 会话标签栏 ===== */
+.session-tabs-bar {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  height: 32px;
+}
+
+.session-new-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  width: 28px;
+  height: 100%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border-color);
+}
+.session-new-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.session-tabs-scroll {
+  display: flex;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+}
+.session-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.session-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-right: 1px solid var(--border-color);
+  white-space: nowrap;
+  user-select: none;
+  max-width: 150px;
+}
+.session-tab.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.session-tab:hover {
+  background: var(--bg-hover);
+}
+
+.session-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-tab-close {
+  font-size: 12px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.session-tab-close:hover {
+  opacity: 1;
+  color: #f44747;
+}
+
+.session-scroll-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 10px;
+  width: 22px;
+  height: 100%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.session-scroll-btn:hover:not(.disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.session-scroll-btn.disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 /* ===== 思考进度条 ===== */
 .thinking-progress {
   position: absolute;
-  top: 0;
+  top: 32px;
   left: 0;
   right: 0;
   height: 3px;
@@ -286,94 +571,322 @@ onUnmounted(() => {
   }
 }
 
-/* ===== 思考内容区域 ===== */
-.msg-thinking {
-  margin-bottom: 4px;
-  border: 1px solid var(--agent-thinking-border);
+/* ===== 时间轴布局（每个助手消息一条时间轴） ===== */
+.timeline {
+  position: relative;
+  padding-left: 24px;
+  margin-bottom: 16px;
+}
+
+/* 贯穿该消息所有块的竖线 */
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--border-color);
+  border-radius: 1px;
+}
+
+/* ===== 时间轴节点 ===== */
+.tl-node {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.tl-dot {
+  position: absolute;
+  left: -22px;
+  top: 6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  z-index: 1;
+  border: 2px solid var(--bg-secondary);
+}
+
+/* 用户 — 蓝色 */
+.tl-dot-user {
+  background: #569cd6;
+  box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.3);
+}
+
+/* 思考 — 琥珀色 */
+.tl-dot-thinking {
+  background: #d4a017;
+  box-shadow: 0 0 0 2px rgba(212, 160, 23, 0.3);
+}
+
+/* 工具 — 绿色（完成）/ 动画（运行中） */
+.tl-dot-tool {
+  background: #4ec9b0;
+  box-shadow: 0 0 0 2px rgba(78, 201, 176, 0.3);
+}
+.tl-tool-running .tl-dot-tool {
+  animation: tl-pulse 1s ease-in-out infinite;
+}
+
+/* 回复 — 白色 */
+.tl-dot-response {
+  background: #a0a0a0;
+  box-shadow: 0 0 0 2px rgba(160, 160, 160, 0.3);
+}
+
+/* 编辑 — 亮绿色 */
+.tl-dot-edit {
+  background: #6a9955;
+  box-shadow: 0 0 0 2px rgba(106, 153, 85, 0.3);
+}
+
+/* 系统 — 红色 */
+.tl-dot-system {
+  background: #f44747;
+  box-shadow: 0 0 0 2px rgba(244, 71, 71, 0.3);
+}
+
+@keyframes tl-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(78, 201, 176, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(78, 201, 176, 0.1); }
+}
+
+/* ===== 节点内容体 ===== */
+.tl-body {
+  padding: 4px 0;
+}
+
+.tl-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+.tl-content :deep(p) {
+  margin: 4px 0;
+}
+.tl-content :deep(h1) {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+}
+.tl-content :deep(h2) {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+.tl-content :deep(h3) {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 6px 0 2px;
+}
+.tl-content :deep(pre) {
+  background: #0d1117;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  background: var(--agent-thinking-surface);
-  overflow: hidden;
-}
-
-.thinking-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 10px;
-  font-size: 11px;
-  color: var(--agent-thinking-title);
-  cursor: pointer;
-  user-select: none;
-}
-.thinking-header:hover {
-  background: rgba(255, 200, 50, 0.08);
-}
-
-.thinking-indicator {
-  font-weight: 500;
-}
-
-.thinking-toggle {
-  font-size: 9px;
-  opacity: 0.6;
-}
-
-.thinking-body {
-  padding: 4px 10px 8px;
-  border-top: 1px solid var(--agent-divider);
-}
-
-.thinking-content {
+  padding: 8px 10px;
+  margin: 6px 0;
+  overflow-x: auto;
   font-size: 12px;
-  line-height: 1.5;
-  color: var(--agent-thinking-text);
-  white-space: pre-wrap;
-  word-break: break-word;
+  line-height: 1.4;
 }
-
-/* ===== 思考 → 结果分隔线 ===== */
-.thinking-separator {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.tl-content :deep(code) {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+}
+.tl-content :deep(:not(pre) > code) {
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #e06c75;
+}
+.tl-content :deep(strong) {
+  font-weight: 600;
+  color: #fff;
+}
+.tl-content :deep(em) {
+  font-style: italic;
+}
+.tl-content :deep(ul),
+.tl-content :deep(ol) {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.tl-content :deep(li) {
+  margin: 2px 0;
+}
+.tl-content :deep(a) {
+  color: var(--accent-color);
+  text-decoration: none;
+}
+.tl-content :deep(a:hover) {
+  text-decoration: underline;
+}
+.tl-content :deep(blockquote) {
+  border-left: 3px solid var(--accent-color);
+  margin: 6px 0;
+  padding: 4px 10px;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.03);
+}
+.tl-content :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--border-color);
   margin: 8px 0;
 }
 
-.separator-line {
-  flex: 1;
-  height: 1px;
-  background: var(--agent-divider);
-}
-
-.separator-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  letter-spacing: 1px;
-  white-space: nowrap;
-}
-
-/* ===== 处理中指示 ===== */
-.agent-loading {
-  color: var(--text-secondary);
-  font-size: 12px;
-  padding: 4px 8px;
+/* ===== 思考节点 ===== */
+.tl-thinking-header {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  color: #b8952e;
+}
+.tl-thinking-header:hover {
+  color: #d4a017;
 }
 
-.thinking-pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-color);
-  animation: pulse-dot 1s ease-in-out infinite;
+.tl-thinking-label {
+  font-weight: 500;
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 0.3; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
+.tl-thinking-toggle {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.tl-thinking-body {
+  margin-top: 4px;
+  padding: 0;
+  border-left: 2px solid rgba(212, 160, 23, 0.3);
+  background: rgba(255, 200, 50, 0.04);
+  border-radius: 0 4px 4px 0;
+  /* 默认折叠：显示约 2 行预览，底部对齐以展示最新内容 */
+  max-height: 2.8em;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  transition: max-height 0.2s ease;
+}
+.tl-thinking-body.expanded {
+  max-height: 3000px;
+  display: block;
+}
+
+.tl-thinking-content {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #b8952e;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 4px 10px;
+}
+
+/* ===== 工具调用节点 ===== */
+.tl-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: #4ec9b0;
+  cursor: pointer;
+  user-select: none;
+}
+.tl-tool-header:hover {
+  color: #6fdcc0;
+}
+
+.tl-tool-icon {
+  font-size: 12px;
+}
+
+.tl-tool-type {
+  font-weight: 600;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+.tl-tool-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-tool-toggle {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.tl-tool-running .tl-tool-type {
+  opacity: 0.8;
+}
+
+.tl-tool-result {
+  margin-top: 4px;
+  border-left: 2px solid rgba(78, 201, 176, 0.3);
+  background: rgba(78, 201, 176, 0.04);
+  border-radius: 0 4px 4px 0;
+  /* 默认折叠 */
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+.tl-tool-result.expanded {
+  max-height: 600px;
+  overflow-y: auto;
+}
+.tl-tool-result pre {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+/* ===== 编辑摘要节点 ===== */
+.tl-edit-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 11px;
+  color: #6a9955;
+}
+
+.tl-edit-file {
+  background: rgba(106, 153, 85, 0.15);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 10px;
+}
+
+.tl-undo-btn {
+  margin-left: auto;
+  background: rgba(255, 200, 50, 0.15);
+  border: 1px solid rgba(255, 200, 50, 0.3);
+  color: #d4a017;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.tl-undo-btn:hover {
+  background: rgba(255, 200, 50, 0.25);
 }
 
 /* ===== Footer ===== */
@@ -410,7 +923,7 @@ onUnmounted(() => {
 .agent-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 12px 16px;
 }
 .agent-empty {
   color: var(--text-secondary);
@@ -418,137 +931,48 @@ onUnmounted(() => {
   text-align: center;
   padding: 40px 0;
 }
-.agent-message {
-  margin-bottom: 8px;
-  padding: 6px 8px;
-  border-radius: 4px;
-  font-size: 13px;
+
+/* ===== 用户消息 —— 右对齐，不在时间轴上 ===== */
+.user-msg-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
 }
-.msg-user {
+
+.user-msg-bubble {
+  max-width: 80%;
   background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px 12px 4px 12px;
+  padding: 10px 14px;
 }
-.msg-assistant {
-  background: var(--agent-msg-assistant-bg);
-}
-.msg-system {
-  background: var(--agent-msg-system-bg);
-}
-.msg-role {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-.msg-content {
+
+.user-msg-content {
+  font-size: 13px;
   line-height: 1.5;
+  color: var(--text-primary);
 }
-.msg-content :deep(p) {
+.user-msg-content :deep(p) {
   margin: 4px 0;
 }
-.msg-content :deep(h1) {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 8px 0 4px;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 4px;
-}
-.msg-content :deep(h2) {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 8px 0 4px;
-}
-.msg-content :deep(h3) {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 6px 0 2px;
-}
-.msg-content :deep(pre) {
-  background: var(--agent-code-bg);
+.user-msg-content :deep(pre) {
+  background: #0d1117;
   border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 8px 10px;
   margin: 6px 0;
   overflow-x: auto;
   font-size: 12px;
-  line-height: 1.4;
 }
-.msg-content :deep(code) {
+.user-msg-content :deep(code) {
   font-family: 'Consolas', 'Courier New', monospace;
   font-size: 12px;
 }
-.msg-content :deep(:not(pre) > code) {
-  background: var(--bg-tertiary);
+.user-msg-content :deep(:not(pre) > code) {
+  background: rgba(255,255,255,0.08);
   padding: 1px 4px;
   border-radius: 3px;
   color: var(--agent-code-accent);
-}
-.msg-content :deep(strong) {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.msg-content :deep(em) {
-  font-style: italic;
-}
-.msg-content :deep(ul),
-.msg-content :deep(ol) {
-  margin: 4px 0;
-  padding-left: 20px;
-}
-.msg-content :deep(li) {
-  margin: 2px 0;
-}
-.msg-content :deep(a) {
-  color: var(--accent-color);
-  text-decoration: none;
-}
-.msg-content :deep(a:hover) {
-  text-decoration: underline;
-}
-.msg-content :deep(blockquote) {
-  border-left: 3px solid var(--accent-color);
-  margin: 6px 0;
-  padding: 4px 10px;
-  color: var(--text-secondary);
-  background: var(--agent-blockquote-bg);
-}
-.msg-content :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--border-color);
-  margin: 8px 0;
-}
-.edit-summary {
-  margin-top: 8px;
-  padding: 6px 8px;
-  background: var(--agent-edit-surface);
-  border: 1px solid var(--agent-edit-border);
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--agent-edit-text);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-.edit-file {
-  background: var(--agent-edit-badge);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 10px;
-}
-.undo-btn {
-  margin-left: auto;
-  background: var(--agent-undo-surface);
-  border: 1px solid var(--agent-undo-border);
-  color: var(--agent-undo-text);
-  padding: 2px 8px;
-  font-size: 10px;
-  cursor: pointer;
-  border-radius: 3px;
-  white-space: nowrap;
-}
-.undo-btn:hover {
-  background: var(--agent-undo-border);
 }
 .agent-input-area {
   display: flex;

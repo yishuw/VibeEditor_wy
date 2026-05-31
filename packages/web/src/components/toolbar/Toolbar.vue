@@ -91,9 +91,6 @@
       <span v-if="workspaceMode" class="toolbar-badge">
         {{ workspaceMode.toUpperCase() }}
       </span>
-      <button class="toolbar-btn toolbar-agent-btn" :title="$t('toolbar.toggleAgent')" @click="$emit('toggle-agent')">
-        {{ $t('toolbar.agent') }}
-      </button>
       <div v-if="env === 'electron'" class="window-controls">
         <button class="win-btn win-minimize" title="Minimize" @click="handleMinimize">
           <svg width="10" height="10" viewBox="0 0 10 10"><rect y="4" width="10" height="1" fill="currentColor"/></svg>
@@ -135,7 +132,6 @@ defineEmits<{
   'save': [];
   'new-file': [];
   'new-folder': [];
-  'toggle-agent': [];
   'toggle-sidebar': [];
   'edit-cut': [];
   'edit-copy': [];
@@ -247,14 +243,6 @@ function handleToolbarDblClick() {
 .toolbar-btn:hover {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
-}
-.toolbar-agent-btn {
-  color: var(--accent-color);
-  font-weight: 500;
-}
-.toolbar-agent-btn:hover {
-  color: var(--accent-color);
-  background: rgba(0, 122, 204, 0.1);
 }
 .sidebar-toggle-icon {
   font-size: 16px;

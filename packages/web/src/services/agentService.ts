@@ -1,7 +1,15 @@
-import type { AgentConfig } from '@vibeeditor/agent';
 import { i18n } from '../locales';
 
-export type { AgentConfig };
+/** Agent 运行配置 */
+export interface AgentConfig {
+  mode: 'build' | 'plan';
+  model?: string;
+  apiUrl?: string;
+  apiKey?: string;
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
 
 /** 对话消息 */
 export interface AgentMessage {
@@ -21,10 +29,12 @@ export interface StreamEvent {
 export function createAgentService(baseUrl = '') {
   return {
     async sendMessage(message: string, context: Record<string, unknown>, config: AgentConfig): Promise<AgentMessage> {
+      const body: Record<string, unknown> = { message, context, config };
+      if (context.sessionId) body.sessionId = context.sessionId;
       const res = await fetch(`${baseUrl}/api/agent/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, context, config }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`${i18n.global.t('errors.apiError')}: ${res.status}`);
       return res.json();
@@ -40,6 +50,12 @@ export function createAgentService(baseUrl = '') {
       const body: Record<string, unknown> = { message, context, config };
       if (context.workspaceRoot) {
         body.workspaceRoot = context.workspaceRoot;
+      }
+      if (context.mcpConfig) {
+        body.mcpConfig = context.mcpConfig;
+      }
+      if (context.sessionId) {
+        body.sessionId = context.sessionId;
       }
       const res = await fetch(`${baseUrl}/api/agent/stream`, {
         method: 'POST',
@@ -68,12 +84,16 @@ export function createAgentService(baseUrl = '') {
         const parts = buffer.split('\n');
         buffer = parts.pop() || '';
 
+        let streamDone = false;
         for (const line of parts) {
           if (!line.startsWith('data: ')) continue;
           try {
             const data = JSON.parse(line.slice(6));
             if (data.error) throw new Error(data.error);
-            if (data.done) break;
+            if (data.done) {
+              streamDone = true;
+              break;
+            }
 
             if (data.tool_start && onEvent) {
               onEvent({ type: 'tool_start', message: data.tool_start });
@@ -103,6 +123,7 @@ export function createAgentService(baseUrl = '') {
             // skip unparseable SSE lines
           }
         }
+        if (streamDone) break;
       }
 
       if (thinkingActive && onEvent) {

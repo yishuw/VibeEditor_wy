@@ -3,6 +3,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { filesRouter } from './routes/files';
 import { agentRouter } from './routes/agent';
+import { mcpRouter } from './routes/mcp';
 
 export interface ServerConfig {
   port?: number;
@@ -21,6 +22,7 @@ export function createApp(config: ServerConfig = {}) {
 
   app.use('/api/files', filesRouter);
   app.use('/api/agent', agentRouter);
+  app.use('/api/mcp', mcpRouter);
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
