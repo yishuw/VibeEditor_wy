@@ -5,6 +5,8 @@ import type { ProviderConfig } from './useProviderSettings';
 import { parseEditsFromText, type ParsedEdit } from '../services/editParser';
 import { useEditorStore } from '../stores/editor';
 import { getEditorInstance } from '../services/editorInstance';
+import { useMcpSettings } from './useMcpSettings';
+import type { McpConfig } from '@vibeeditor/agent';
 
 /** Agent 运行上下文 —— 当前 IDE 环境快照 */
 export interface AgentContext {
@@ -220,10 +222,23 @@ export function useAgent() {
       const ctx = buildAgentContext(activeFilePath);
       const history = messages.value.slice(0, -1).filter(m => m.id !== assistantMsgId);
 
+      // 构建 MCP 配置：读取已启用的 MCP 服务器
+      const mcpSettings = useMcpSettings();
+      const enabledServers = mcpSettings.servers.value.filter(s => s.enabled);
+      let mcpConfig: McpConfig | undefined;
+      if (enabledServers.length > 0) {
+        const mcpServers: Record<string, any> = {};
+        for (const s of enabledServers) {
+          mcpServers[s.id] = s.config;
+        }
+        mcpConfig = { mcpServers };
+      }
+
       const streamCtx = {
         ...ctx,
         conversationHistory: history,
         workspaceRoot: store.workspaceRoot || undefined,
+        mcpConfig,
       };
       await service.streamMessage(
         content,

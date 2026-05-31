@@ -49,6 +49,9 @@ export function createAgentService(baseUrl = '') {
       if (context.workspaceRoot) {
         body.workspaceRoot = context.workspaceRoot;
       }
+      if (context.mcpConfig) {
+        body.mcpConfig = context.mcpConfig;
+      }
       const res = await fetch(`${baseUrl}/api/agent/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
