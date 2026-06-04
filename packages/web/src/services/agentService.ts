@@ -58,9 +58,6 @@ export function createAgentService(baseUrl = DEFAULT_BASE_URL) {
       if (context.workspaceRoot) {
         body.workspaceRoot = context.workspaceRoot;
       }
-      if (context.mcpConfig) {
-        body.mcpConfig = context.mcpConfig;
-      }
       if (context.sessionId) {
         body.sessionId = context.sessionId;
       }

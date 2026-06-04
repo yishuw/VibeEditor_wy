@@ -61,11 +61,11 @@ function openEditDialog(server: McpServerUI) {
   dialogVisible.value = true;
 }
 
-function handleSaved(config: McpServerConfig, name: string, description: string, tools: McpToolInfo[]) {
+async function handleSaved(id: string, config: McpServerConfig, name: string, description: string, tools: McpToolInfo[]) {
   if (editingServer.value) {
-    settings.updateServer(editingServer.value.id, config, name, description, tools);
+    settings.setTools(id, tools);
   } else {
-    settings.addServer(config, name, description, tools);
+    await settings.refresh();
   }
   dialogVisible.value = false;
   editingServer.value = null;

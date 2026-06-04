@@ -8,6 +8,8 @@ import { MCPToolAdapter } from './adapter';
 
 type MCPToolDefinition = ListToolsResult['tools'][number];
 
+const RESERVED_TOOL_NAMES = new Set(['read_file', 'list_dir', 'search_code', 'bash', 'delegate']);
+
 /** 已连接的 MCP 服务端运行时信息 */
 export interface ConnectedServer {
   id: string;
@@ -135,14 +137,24 @@ export class McpManager {
   /** 将已发现的所有工具包装为 ITool 适配器数组 */
   createToolAdapters(): ITool[] {
     const adapters: ITool[] = [];
+    const seenNames = new Set<string>();
 
     for (const server of this.servers) {
       const defs = server.client.getToolDefinitions();
       for (const def of defs) {
+        const originalName = def.name;
+
+        let toolName = originalName;
+        if (RESERVED_TOOL_NAMES.has(toolName) || seenNames.has(toolName)) {
+          toolName = `mcp_${server.id}_${originalName}`;
+        }
+        seenNames.add(toolName);
+
         const adapter = new MCPToolAdapter(
           def,
-          buildXMLUsage(def.name, def.inputSchema),
-          (name, args) => server.client.callTool(name, args)
+          buildXMLUsage(toolName, def.inputSchema),
+          (name, args) => server.client.callTool(name, args),
+          toolName !== originalName ? toolName : undefined
         );
         adapters.push(adapter);
       }
