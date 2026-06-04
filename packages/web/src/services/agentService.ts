@@ -23,6 +23,7 @@ export interface AgentMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  edits?: { path: string; content: string }[];
   timestamp: number;
 }
 
@@ -79,6 +80,7 @@ export function createAgentService(baseUrl = DEFAULT_BASE_URL) {
       let fullContent = '';
       let buffer = '';
       let thinkingActive = false;
+      let edits: { path: string; content: string }[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -95,6 +97,7 @@ export function createAgentService(baseUrl = DEFAULT_BASE_URL) {
             const data = JSON.parse(line.slice(6));
             if (data.error) throw new Error(data.error);
             if (data.done) {
+              if (data.edits) edits = data.edits;
               streamDone = true;
               break;
             }
@@ -138,6 +141,7 @@ export function createAgentService(baseUrl = DEFAULT_BASE_URL) {
         id: `agent_${Date.now()}`,
         role: 'assistant',
         content: fullContent,
+        edits,
         timestamp: Date.now(),
       };
     },

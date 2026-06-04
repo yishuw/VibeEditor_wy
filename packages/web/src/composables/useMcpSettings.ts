@@ -93,9 +93,21 @@ function createMcpSettings() {
     server.toolCount = tools.length;
   }
 
+  function addLocal(id: string, config: McpServerConfig, name: string, description: string, tools: McpToolInfo[]): void {
+    servers.value.push({
+      id,
+      name: name || id,
+      description: description || undefined,
+      enabled: true,
+      config,
+      toolCount: tools.length,
+      tools,
+    });
+  }
+
   init();
 
-  return { servers, loading, error, addServer, updateServer, removeServer, toggleServer, setTools, refresh };
+  return { servers, loading, error, addServer, updateServer, removeServer, toggleServer, setTools, addLocal, refresh };
 }
 
 let instance: ReturnType<typeof createMcpSettings> | null = null;

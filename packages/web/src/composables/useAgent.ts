@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import { createAgentService } from '../services/agentService';
 import type { AgentConfig, StreamEvent } from '../services/agentService';
 import type { ProviderConfig } from './useProviderSettings';
-import { parseEditsFromText, type ParsedEdit } from '../services/editParser';
+import type { ParsedEdit } from '../services/editParser';
 import { useEditorStore } from '../stores/editor';
 import { getEditorInstance } from '../services/editorInstance';
 
@@ -31,9 +31,9 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   thinking?: string;
+  edits?: { path: string; content: string }[];
   timestamp: number;
   editOperations?: ParsedEdit[];
-  /** 按时间顺序排列的消息块（助手消息） */
   blocks?: MessageBlock[];
   /** @deprecated 使用 blocks 替代 */
   toolNodes?: ToolCallNode[];
@@ -115,10 +115,9 @@ export function useAgent(sessionId?: string) {
 
   function extractEdits(msg: ChatMessage) {
     if (config.value.mode === 'build') {
-      const edits = parseEditsFromText(msg.content);
-      if (edits.length > 0) {
-        msg.editOperations = edits;
-        lastEdits.value = edits;
+      if (msg.edits && msg.edits.length > 0) {
+        msg.editOperations = msg.edits;
+        lastEdits.value = msg.edits;
       }
     }
   }

@@ -42,6 +42,11 @@ export function loadEnabledMcpConfig(configDir: string): McpConfig {
   return { mcpServers };
 }
 
+/** 从持久化文件加载启用的服务器条目列表 */
+export function loadEnabledMcpServers(configDir: string): McpServerEntry[] {
+  return loadSettings(configDir).servers.filter(s => s.enabled);
+}
+
 export function createMcpRouter(configDir: string) {
   const router = Router();
 

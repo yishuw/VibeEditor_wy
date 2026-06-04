@@ -65,7 +65,8 @@ async function handleSaved(id: string, config: McpServerConfig, name: string, de
   if (editingServer.value) {
     settings.setTools(id, tools);
   } else {
-    await settings.refresh();
+    // 服务端已保存，直接更新本地状态（含工具列表）
+    settings.addLocal(id, config, name, description, tools);
   }
   dialogVisible.value = false;
   editingServer.value = null;

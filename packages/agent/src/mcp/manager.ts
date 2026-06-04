@@ -210,7 +210,7 @@ export class McpManager {
 export async function createTransport(config: McpServerConfig): Promise<Transport> {
   switch (config.type) {
     case 'stdio': {
-      const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio');
+      const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
       return new StdioClientTransport({
         command: config.command,
         args: config.args,
@@ -219,13 +219,13 @@ export async function createTransport(config: McpServerConfig): Promise<Transpor
       });
     }
     case 'sse': {
-      const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse');
+      const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
       return new SSEClientTransport(new URL(config.url), {
         requestInit: config.headers ? { headers: config.headers } : undefined,
       });
     }
     case 'http': {
-      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp');
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
       return new StreamableHTTPClientTransport(new URL(config.url), {
         requestInit: config.headers ? { headers: config.headers } : undefined,
         sessionId: config.sessionId,
