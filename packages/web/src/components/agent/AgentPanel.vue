@@ -212,7 +212,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { useSessionStore } from '../../stores/sessions';
-import { useProviderSettings } from '../../composables/useProviderSettings';
+import { useLLMSettings } from '../../composables/useLLMSettings';
 import { useEditorStore } from '../../stores/editor';
 import { renderMarkdown } from '../../services/markdown';
 import type { ChatMessage } from '../../composables/useAgent';
@@ -229,7 +229,7 @@ const emit = defineEmits<{
 }>();
 
 const sessionStore = useSessionStore();
-const providerSettings = useProviderSettings();
+const providerSettings = useLLMSettings();
 const editorStore = useEditorStore();
 const input = ref('');
 const messagesContainer = ref<HTMLElement>();
@@ -419,6 +419,7 @@ function startInputResize(e: MouseEvent) {
 }
 
 onMounted(() => {
+  providerSettings.reload();
   messagesContainer.value?.addEventListener('scroll', onMessagesScroll);
   setupObserver();
 

@@ -1,18 +1,21 @@
 import { Router, Request, Response } from 'express';
-import { AgentRuntime, type AgentRuntimeEvent, type AgentContext, type AgentEditResult } from '@vibeeditor/agent';
+import { AgentRuntime, type AgentRuntimeConfig, type AgentRuntimeEvent, type AgentContext, type AgentEditResult } from '@vibeeditor/agent';
 import { LocalFileSystem } from '@vibeeditor/core';
 import { executeEdits } from '@vibeeditor/agent';
 import { loadEnabledMcpServers } from './mcp';
+import type { WorkspaceManager } from '../workspace/manager';
+import type { LLMGateway } from '../llm/gateway';
 
-function buildRuntimeConfig(body: Record<string, unknown>, configDir: string, workspaceRoot?: string) {
+function buildRuntimeConfig(body: Record<string, unknown>, configDir: string, llmGateway: LLMGateway, workspaceRoot?: string): AgentRuntimeConfig {
   const cfg = (body.config as any) || body;
   const mode = (cfg.mode || 'plan') as 'build' | 'plan';
+  const activeProvider = llmGateway.getActiveProvider();
   return {
     mode,
     provider: {
-      apiUrl: cfg.apiUrl,
-      apiKey: cfg.apiKey,
-      model: cfg.model,
+      apiUrl: activeProvider?.apiUrl || '',
+      apiKey: activeProvider?.apiKey || '',
+      model: activeProvider?.model || '',
     },
     systemPrompt: cfg.systemPrompt,
     temperature: cfg.temperature,
@@ -22,18 +25,40 @@ function buildRuntimeConfig(body: Record<string, unknown>, configDir: string, wo
   };
 }
 
-export function createAgentRouter(configDir: string) {
+interface StreamRequestBody {
+  message: string;
+  context?: AgentContext;
+  workspaceRoot?: string;
+  workspaceId?: string;
+  config?: Record<string, unknown>;
+}
+
+export function createAgentRouter(configDir: string, workspaceManager: WorkspaceManager, llmGateway: LLMGateway) {
   const router = Router();
+
+  function getRuntime(reqBody: Record<string, unknown>, workspaceRootOverride?: string): AgentRuntime {
+    const body = reqBody as unknown as StreamRequestBody;
+    const wsRoot = workspaceRootOverride || body.workspaceRoot;
+    if (body.workspaceId) {
+      const ws = workspaceManager.getWorkspaceData(body.workspaceId);
+      if (ws) {
+        return new AgentRuntime(buildRuntimeConfig(reqBody, configDir, llmGateway, ws.rootPath));
+      }
+    }
+    return new AgentRuntime(
+      buildRuntimeConfig(reqBody, configDir, llmGateway, wsRoot)
+    );
+  }
 
   router.post('/chat', async (req: Request, res: Response) => {
     try {
-      const { message, context } = req.body;
+      const { message, context, workspaceId } = req.body;
       if (!message) {
         res.status(400).json({ error: 'message is required' });
         return;
       }
 
-      const runtime = new AgentRuntime(buildRuntimeConfig(req.body, configDir));
+      const runtime = getRuntime(req.body);
       const result = await runtime.chat(message, context as AgentContext);
 
       res.json({
@@ -49,7 +74,8 @@ export function createAgentRouter(configDir: string) {
   });
 
   router.post('/stream', async (req: Request, res: Response) => {
-    const { message, context, workspaceRoot } = req.body;
+    const body = req.body as StreamRequestBody;
+    const { message, context, workspaceRoot, workspaceId } = body;
     if (!message) {
       res.status(400).json({ error: 'message is required' });
       return;
@@ -65,9 +91,7 @@ export function createAgentRouter(configDir: string) {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    const runtime = new AgentRuntime(
-      buildRuntimeConfig(req.body, configDir, workspaceRoot)
-    );
+    const runtime = getRuntime(req.body, workspaceRoot);
 
     try {
       const mcpStatus = runtime.mcpStatus;

@@ -21,10 +21,7 @@
           <button class="dropdown-item" :title="$t('toolbar.openFolder')" @click="$emit('open-folder')">
             {{ $t('toolbar.openFolder') }}
           </button>
-          <button v-if="env === 'browser' || env === 'server'" class="dropdown-item" :title="$t('toolbar.browseServer')" @click="$emit('connect-server')">
-            {{ $t('toolbar.browseServer') }}
-          </button>
-          <button v-if="env === 'browser'" class="dropdown-item" :title="$t('toolbar.openFile')" @click="$emit('open-local-file')">
+          <button v-if="env !== 'electron'" class="dropdown-item" :title="$t('toolbar.openFile')" @click="$emit('open-file')">
             {{ $t('toolbar.openFile') }}
           </button>
           <div class="dropdown-sep"></div>
@@ -127,8 +124,7 @@ defineProps<{
 
 defineEmits<{
   'open-folder': [];
-  'connect-server': [];
-  'open-local-file': [];
+  'open-file': [];
   'save': [];
   'new-file': [];
   'new-folder': [];

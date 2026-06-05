@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 import { createAgentService } from '../services/agentService';
 import type { AgentConfig, StreamEvent } from '../services/agentService';
-import type { ProviderConfig } from './useProviderSettings';
+import type { ProviderConfig } from './useLLMSettings';
 import type { ParsedEdit } from '../services/editParser';
 import { useEditorStore } from '../stores/editor';
 import { getEditorInstance } from '../services/editorInstance';
@@ -103,14 +103,8 @@ export function useAgent(sessionId?: string) {
   const toolStatus = ref<string>('');
   const thinkingActive = ref(false);
 
-  function buildRequestConfig(provider?: ProviderConfig | null): AgentConfig {
-    const cfg: AgentConfig = { ...config.value };
-    if (provider) {
-      cfg.apiUrl = provider.apiUrl;
-      cfg.apiKey = provider.apiKey;
-      cfg.model = cfg.model || provider.model;
-    }
-    return cfg;
+  function buildRequestConfig(_provider?: ProviderConfig | null): AgentConfig {
+    return { ...config.value };
   }
 
   function extractEdits(msg: ChatMessage) {
@@ -224,6 +218,7 @@ export function useAgent(sessionId?: string) {
         ...ctx,
         conversationHistory: history,
         workspaceRoot: store.workspaceRoot || undefined,
+        workspaceId: store.activeWorkspaceId || undefined,
         sessionId,
       };
       await service.streamMessage(

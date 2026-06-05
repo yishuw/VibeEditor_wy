@@ -29,6 +29,7 @@ export interface WorkspaceRoot {
   path: string;
   name: string;
   mode: WorkspaceMode;
+  workspaceId?: string;
 }
 
 let tabCounter = 0;
@@ -72,6 +73,7 @@ export const useEditorStore = defineStore('editor', () => {
   const fileTreeNodes = ref<any[]>([]);
   const workspaceRoots = ref<WorkspaceRoot[]>([]);
   const workspaceMode = ref<WorkspaceMode>('server');
+  const activeWorkspaceId = ref<string | null>(null);
 
   /** 当前活动标签页（计算属性） */
   const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value) ?? null);
@@ -177,9 +179,18 @@ export const useEditorStore = defineStore('editor', () => {
     }
   };
 
+  /** 按路径激活标签页 */
+  const setActiveTabByName = (filePath: string) => {
+    const tab = tabs.value.find(t => t.path === filePath);
+    if (tab) {
+      activeTabId.value = tab.id;
+    }
+  };
+
   return {
     tabs, activeTabId, activeTab, fileTreeNodes, workspaceRoot, workspaceRoots, workspaceMode,
+    activeWorkspaceId,
     addWorkspaceRoot,
-    openFile, newUntitled, closeTab, updateContent, saveTab, setActiveTab, setTabPath,
+    openFile, newUntitled, closeTab, updateContent, saveTab, setActiveTab, setTabPath, setActiveTabByName,
   };
 });

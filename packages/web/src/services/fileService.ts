@@ -23,6 +23,28 @@ export interface FileServiceClient {
   openFolder(): Promise<string | null>;
   openFile(): Promise<{ path: string } | null>;
   saveFileAs?(path: string, content: string): Promise<string | null>;
+  browseFilesystem(path: string): Promise<{ path: string; parent: string; entries: FileEntry[] }>;
+  getWorkspaceRoots(): Promise<FileEntry[]>;
+  openWorkspace(rootPath: string, providerConfig?: Record<string, unknown>): Promise<WorkspaceInfo>;
+  closeWorkspace(workspaceId: string): Promise<void>;
+  updateWorkspace(workspaceId: string, data: { openTabs?: StoredTabInfo[]; activeTabPath?: string }): Promise<void>;
+  setWorkspaceRoot?(root: string): void;
+}
+
+export interface StoredTabInfo {
+  path: string;
+  cursorLine?: number;
+  cursorColumn?: number;
+}
+
+export interface WorkspaceInfo {
+  workspaceId: string;
+  rootPath: string;
+  rootName: string;
+  openTabs: StoredTabInfo[];
+  activeTabPath?: string;
+  createdAt: number;
+  lastOpenedAt: number;
 }
 
 /** 运行时环境类型 */
@@ -76,11 +98,25 @@ export function createElectronClient(): FileServiceClient {
     openFolder: () => api.openFolder(),
     openFile: () => api.openFile(),
     saveFileAs: (path, content) => api.saveFile(path, content),
+    browseFilesystem: async () => ({ path: '/', parent: '/', entries: [] }),
+    getWorkspaceRoots: async () => [],
+    openWorkspace: async (rootPath) => ({
+      workspaceId: `ws_${Date.now()}`,
+      rootPath,
+      rootName: rootPath.split(/[\\/]/).pop() || rootPath,
+      openTabs: [],
+      createdAt: Date.now(),
+      lastOpenedAt: Date.now(),
+    }),
+    closeWorkspace: async () => {},
+    updateWorkspace: async () => {},
   };
 }
 
 /** 创建 Server HTTP 客户端 —— 通过 fetch 调用 REST API */
 export function createServerClient(baseUrl = ''): FileServiceClient {
+  let workspaceRoot = '';
+
   async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const res = await fetch(`${baseUrl}${endpoint}`, {
       ...options,
@@ -90,14 +126,19 @@ export function createServerClient(baseUrl = ''): FileServiceClient {
     return res.json();
   }
 
+  function rootParam(root?: string): string {
+    const r = root || workspaceRoot;
+    return r ? `&root=${encodeURIComponent(r)}` : '';
+  }
+
   return {
     readFile: async (path) => {
-      const data = await request<{ content: string }>(`/api/files/read?path=${encodeURIComponent(path)}`);
+      const data = await request<{ content: string }>(`/api/files/read?path=${encodeURIComponent(path)}${rootParam()}`);
       return data.content;
     },
     readFileBuffer: async (path) => {
       const data = await request<{ path: string; data: string }>(
-        `/api/files/read-buffer?path=${encodeURIComponent(path)}`
+        `/api/files/read-buffer?path=${encodeURIComponent(path)}${rootParam()}`
       );
       const binary = atob(data.data);
       const bytes = new Uint8Array(binary.length);
@@ -109,31 +150,31 @@ export function createServerClient(baseUrl = ''): FileServiceClient {
     writeFile: async (path, content) => {
       await request('/api/files/write', {
         method: 'POST',
-        body: JSON.stringify({ path, content }),
+        body: JSON.stringify({ path, content, root: workspaceRoot || undefined }),
       });
     },
     deleteFile: async (path) => {
-      await request(`/api/files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+      await request(`/api/files/delete?path=${encodeURIComponent(path)}${rootParam()}`, { method: 'DELETE' });
     },
-    readDir: (path) => request<FileEntry[]>(`/api/files/list?path=${encodeURIComponent(path)}`),
+    readDir: (path) => request<FileEntry[]>(`/api/files/list?path=${encodeURIComponent(path)}${rootParam()}`),
     createDir: async (path) => {
       await request('/api/files/mkdir', {
         method: 'POST',
-        body: JSON.stringify({ path }),
+        body: JSON.stringify({ path, root: workspaceRoot || undefined }),
       });
     },
     deleteDir: async (path, recursive = true) => {
-      await request(`/api/files/rmdir?path=${encodeURIComponent(path)}&recursive=${recursive}`, { method: 'DELETE' });
+      await request(`/api/files/rmdir?path=${encodeURIComponent(path)}&recursive=${recursive}${rootParam()}`, { method: 'DELETE' });
     },
     exists: async (path) => {
-      const data = await request<{ exists: boolean }>(`/api/files/exists?path=${encodeURIComponent(path)}`);
+      const data = await request<{ exists: boolean }>(`/api/files/exists?path=${encodeURIComponent(path)}${rootParam()}`);
       return data.exists;
     },
-    stat: (path) => request<FileEntry>(`/api/files/stat?path=${encodeURIComponent(path)}`),
+    stat: (path) => request<FileEntry>(`/api/files/stat?path=${encodeURIComponent(path)}${rootParam()}`),
     rename: async (oldPath, newPath) => {
       await request('/api/files/rename', {
         method: 'POST',
-        body: JSON.stringify({ oldPath, newPath }),
+        body: JSON.stringify({ oldPath, newPath, root: workspaceRoot || undefined }),
       });
     },
     openFolder: async () => null,
@@ -142,12 +183,35 @@ export function createServerClient(baseUrl = ''): FileServiceClient {
       try {
         await request('/api/files/write', {
           method: 'POST',
-          body: JSON.stringify({ path: filePath, content }),
+          body: JSON.stringify({ path: filePath, content, root: workspaceRoot || undefined }),
         });
         return filePath;
       } catch {
         return null;
       }
+    },
+    browseFilesystem: (path) => request(`/api/workspace/browse?path=${encodeURIComponent(path)}`),
+    getWorkspaceRoots: () => request('/api/workspace/roots'),
+    openWorkspace: async (rootPath, providerConfig) => {
+      return request('/api/workspace/open', {
+        method: 'POST',
+        body: JSON.stringify({ rootPath, providerConfig }),
+      });
+    },
+    closeWorkspace: async (workspaceId) => {
+      await request('/api/workspace/close', {
+        method: 'POST',
+        body: JSON.stringify({ workspaceId }),
+      });
+    },
+    updateWorkspace: async (workspaceId, data) => {
+      await request('/api/workspace/update', {
+        method: 'POST',
+        body: JSON.stringify({ workspaceId, ...data }),
+      });
+    },
+    setWorkspaceRoot: (root: string) => {
+      workspaceRoot = root;
     },
   };
 }
@@ -407,6 +471,11 @@ export function createBrowserLocalClient(rootHandle: FileSystemDirectoryHandle):
 
     openFolder: async () => null,
     openFile: async () => null,
+    browseFilesystem: async () => ({ path: '/', parent: '/', entries: [] }),
+    getWorkspaceRoots: async () => [],
+    openWorkspace: async () => ({ workspaceId: '', rootPath: '', rootName: '', openTabs: [], createdAt: 0, lastOpenedAt: 0 }),
+    closeWorkspace: async () => {},
+    updateWorkspace: async () => {},
   };
 }
 

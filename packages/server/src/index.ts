@@ -5,6 +5,10 @@ import { filesRouter } from './routes/files';
 import { createAgentRouter } from './routes/agent';
 import { createMcpRouter } from './routes/mcp';
 import { createConfigRouter } from './routes/config';
+import { createWorkspaceRouter } from './routes/workspace';
+import { createLLMRouter } from './routes/llm';
+import { WorkspaceManager } from './workspace/manager';
+import { LLMGateway } from './llm/gateway';
 
 export interface ServerConfig {
   port?: number;
@@ -20,13 +24,18 @@ export function createApp(config: ServerConfig = {}) {
   const host = config.host ?? '0.0.0.0';
   const configDir = config.configDir || './config';
 
+  const workspaceManager = new WorkspaceManager(configDir);
+  const llmGateway = new LLMGateway(configDir);
+
   app.use(cors({ origin: config.corsOrigin ?? '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] }));
   app.use(express.json({ limit: '50mb' }));
 
   app.use('/api/files', filesRouter);
-  app.use('/api/agent', createAgentRouter(configDir));
+  app.use('/api/agent', createAgentRouter(configDir, workspaceManager, llmGateway));
   app.use('/api/mcp', createMcpRouter(configDir));
   app.use('/api/config', createConfigRouter(configDir));
+  app.use('/api/workspace', createWorkspaceRouter(workspaceManager, llmGateway));
+  app.use('/api/llm', createLLMRouter(llmGateway));
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
