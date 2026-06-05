@@ -36,6 +36,9 @@ export type {
   McpSettingsFile,
 } from './mcp/config';
 
+// -- LLM Gateway（提供商配置管理） --
+export { LLMGateway, maskApiKey, type LLMProvider, type LLMSettings } from './llm/index';
+
 // -- MCP 管理器（服务端 MCP CRUD / 测试使用） --
 export { McpManager } from './mcp/manager';
 export type { McpToolInfo } from './mcp/manager';

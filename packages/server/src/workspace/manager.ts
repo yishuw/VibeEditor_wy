@@ -2,7 +2,7 @@ import { AgentRuntime, type AgentRuntimeConfig, type AgentRuntimeEvent } from '@
 import { LocalFileSystem } from '@vibeeditor/core';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { LLMGateway } from '../llm/gateway';
+import type { LLMGateway } from '@vibeeditor/agent';
 
 const VIBEEDITOR_DIR = '.vibeeditor';
 const WORKSPACE_FILE = 'workspace.json';

@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { FileEntry } from '@vibeeditor/core';
 import { WorkspaceManager } from '../workspace/manager';
-import type { LLMGateway } from '../llm/gateway';
+import type { LLMGateway } from '@vibeeditor/agent';
 
 function getSystemRoots(): string[] {
   if (process.platform === 'win32') {

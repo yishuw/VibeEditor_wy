@@ -87,8 +87,12 @@ export class McpManager {
   async disconnectAll(): Promise<void> {
     for (const server of this.servers) {
       try {
+        console.log(`[McpManager] Disconnecting "${server.id}"...`);
         await server.client.dispose();
-      } catch { /* 忽略断开连接时的错误 */ }
+        console.log(`[McpManager] Disconnected "${server.id}"`);
+      } catch (e: any) {
+        console.warn(`[McpManager] Error disconnecting "${server.id}": ${e.message}`);
+      }
     }
     this.servers = [];
     this.tools = [];
@@ -126,6 +130,7 @@ export class McpManager {
           this.tools.push(info);
           this.toolMap.set(def.name, server);
         }
+        console.log(`[McpManager] "${server.id}": ${defs.length} tool(s) discovered`);
       } catch (e: any) {
         console.error(`[McpManager] Failed to list tools from "${server.id}": ${e.message}`);
       }
@@ -147,6 +152,7 @@ export class McpManager {
         let toolName = originalName;
         if (RESERVED_TOOL_NAMES.has(toolName) || seenNames.has(toolName)) {
           toolName = `mcp_${server.id}_${originalName}`;
+          console.log(`[McpManager] Renamed tool "${originalName}" → "${toolName}" (name conflict)`);
         }
         seenNames.add(toolName);
 
@@ -160,6 +166,7 @@ export class McpManager {
       }
     }
 
+    console.log(`[McpManager] Created ${adapters.length} tool adapter(s)`);
     return adapters;
   }
 
@@ -178,10 +185,16 @@ export class McpManager {
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
     const server = this.toolMap.get(name);
     if (!server) {
+      console.warn(`[McpManager] callTool: "${name}" not found in tool map`);
       throw new Error(`Tool not found: ${name}`);
     }
 
+    console.log(`[McpManager] callTool: "${name}" → server "${server.id}"`);
     const result = await server.client.callTool(name, args);
+    const isError = !!(result as any).isError;
+    if (isError) {
+      console.warn(`[McpManager] callTool: "${name}" returned isError=true`);
+    }
     return formatMCPResult(name, result);
   }
 

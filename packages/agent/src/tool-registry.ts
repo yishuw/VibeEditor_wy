@@ -4,11 +4,19 @@ export class ToolRegistry {
   private tools: Map<string, ITool> = new Map();
 
   register(tool: ITool): void {
+    const replaced = this.tools.has(tool.name);
     this.tools.set(tool.name, tool);
+    if (replaced) {
+      console.log(`[ToolRegistry] Replaced tool: ${tool.name}`);
+    }
   }
 
   get(name: string): ITool | undefined {
-    return this.tools.get(name);
+    const tool = this.tools.get(name);
+    if (!tool) {
+      console.warn(`[ToolRegistry] Tool not found: "${name}" (available: ${Array.from(this.tools.keys()).join(', ')})`);
+    }
+    return tool;
   }
 
   has(name: string): boolean {

@@ -4,18 +4,23 @@ import { LocalFileSystem } from '@vibeeditor/core';
 import { executeEdits } from '@vibeeditor/agent';
 import { loadEnabledMcpServers } from './mcp';
 import type { WorkspaceManager } from '../workspace/manager';
-import type { LLMGateway } from '../llm/gateway';
+import type { LLMGateway } from '@vibeeditor/agent';
 
 function buildRuntimeConfig(body: Record<string, unknown>, configDir: string, llmGateway: LLMGateway, workspaceRoot?: string): AgentRuntimeConfig {
   const cfg = (body.config as any) || body;
   const mode = (cfg.mode || 'plan') as 'build' | 'plan';
-  const activeProvider = llmGateway.getActiveProvider();
+  const providerId = cfg.providerId as string | undefined;
+
+  const provider = providerId
+    ? llmGateway.getProvider(providerId)
+    : llmGateway.getActiveProvider();
+
   return {
     mode,
     provider: {
-      apiUrl: activeProvider?.apiUrl || '',
-      apiKey: activeProvider?.apiKey || '',
-      model: activeProvider?.model || '',
+      apiUrl: provider?.apiUrl || '',
+      apiKey: provider?.apiKey || '',
+      model: provider?.model || '',
     },
     systemPrompt: cfg.systemPrompt,
     temperature: cfg.temperature,
@@ -121,6 +126,9 @@ export function createAgentRouter(configDir: string, workspaceManager: Workspace
             break;
         }
       });
+      if (result.edits.length > 0) {
+        console.log(`[AgentRouter] Sending ${result.edits.length} edit(s) via SSE`);
+      }
       writeSSE({ done: true, edits: result.edits, toolCalls: result.toolCalls.length });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -1,5 +1,3 @@
-import type { IAgentFileSystem } from './filesystem';
-
 /**
  * 工具参数 JSON Schema 子集，与 MCP inputSchema 对齐。
  *
@@ -34,7 +32,7 @@ export interface ToolAnnotations {
 
 /** 工具执行上下文 */
 export interface ToolExecutionContext {
-  fs: IAgentFileSystem;
+  workspaceRoot: string;
 }
 
 /** 工具接口 —— 内置工具和 MCP 工具的统一契约 */

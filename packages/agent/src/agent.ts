@@ -1,5 +1,4 @@
 import type { AgentDefinition, AgentContext, AgentResult, AgentConfig } from './types/agent';
-import type { IAgentFileSystem } from './types/filesystem';
 import type { ITool } from './types/tool';
 import { ToolRegistry } from './tool-registry';
 import { createDefaultTools } from './tools/index';
@@ -21,13 +20,13 @@ const DEFAULT_MAX_TURNS = 15;
 export class Agent {
   readonly definition: AgentDefinition;
   private provider: ReturnType<typeof createOpenAILLMProvider>;
-  private fs: IAgentFileSystem;
+  private workspaceRoot: string;
   private tools: ToolRegistry;
 
-  constructor(definition: AgentDefinition, config: AgentConfig, fs: IAgentFileSystem, extraTools?: ITool[]) {
+  constructor(definition: AgentDefinition, config: AgentConfig, workspaceRoot: string, extraTools?: ITool[]) {
     this.definition = definition;
     this.provider = createOpenAILLMProvider(config);
-    this.fs = fs;
+    this.workspaceRoot = workspaceRoot;
     this.tools = new ToolRegistry();
     for (const tool of createDefaultTools()) {
       this.tools.register(tool);
@@ -66,6 +65,8 @@ export class Agent {
     if (toolsSection) {
       messages.push({ role: 'system', content: toolsSection });
     }
+
+    messages.push({ role: 'system', content: `## Workspace Root\n${this.workspaceRoot}` });
 
     if (context.openFiles?.length) {
       const parts = ['## Currently Open Files'];
@@ -181,6 +182,8 @@ export class Agent {
       messages.push({ role: 'system', content: toolsSection });
     }
 
+    messages.push({ role: 'system', content: `## Workspace Root\n${this.workspaceRoot}` });
+
     if (context.openFiles?.length) {
       const parts = ['## Currently Open Files'];
       for (const f of context.openFiles) {
@@ -260,11 +263,13 @@ export class Agent {
       }
 
       // 对于没有工具调用的最终轮次，内容已经在流式回调中发射过了
-      fullContent = response;
+      fullContent += response;
       emit({ type: 'done' });
       break;
     }
 
+    const hasEdit = /<edit\s/i.test(fullContent);
+    console.log(`[Agent] executeStream done: ${fullContent.length} chars, hasEdit=${hasEdit}, turns=${turns}`);
     return {
       agentId: this.definition.id,
       content: fullContent,
@@ -275,7 +280,18 @@ export class Agent {
 
   private async executeTool(tool: ParsedTool): Promise<string> {
     const impl = this.tools.get(tool.type);
-    if (!impl) return `Unknown tool: ${tool.type}`;
-    return impl.execute(tool.params, { fs: this.fs });
+    if (!impl) {
+      console.warn(`[Agent] Unknown tool: ${tool.type}`);
+      return `Unknown tool: ${tool.type}`;
+    }
+    const keyParams = Object.entries(tool.params)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}=${v.length > 60 ? v.slice(0, 60) + '...' : v}`)
+      .join(', ');
+    console.log(`[Agent] Tool call: ${tool.type}${keyParams ? ` (${keyParams})` : ''}`);
+    const startMs = Date.now();
+    const result = await impl.execute(tool.params, { workspaceRoot: this.workspaceRoot });
+    console.log(`[Agent] Tool done: ${tool.type} (${Date.now() - startMs}ms, ${result.length} chars)`);
+    return result;
   }
 }

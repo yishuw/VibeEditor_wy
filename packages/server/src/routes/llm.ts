@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { LLMGateway, type LLMProvider } from '../llm/gateway';
+import { LLMGateway, type LLMProvider } from '@vibeeditor/agent';
 
 export function createLLMRouter(gateway: LLMGateway) {
   const router = Router();
@@ -76,14 +76,14 @@ export function createLLMRouter(gateway: LLMGateway) {
 
   router.post('/providers/:id/test', async (req: Request, res: Response) => {
     try {
-      const settings = gateway.listProviders();
-      const provider = settings.find(p => p.id === req.params.id);
+      const provider = gateway.getProvider(req.params.id);
       if (!provider) {
         res.status(404).json({ error: 'Provider not found' });
         return;
       }
 
-      const { apiUrl, apiKey } = req.body.apiUrl ? req.body : provider;
+      const apiUrl = req.body.apiUrl || provider.apiUrl;
+      const apiKey = req.body.apiUrl ? req.body.apiKey : provider.apiKey;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 

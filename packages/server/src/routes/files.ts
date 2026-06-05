@@ -115,13 +115,17 @@ router.post('/write', async (req: Request, res: Response) => {
   try {
     const root = resolveRoot(req.body.root as string | undefined);
     const { path: filePath, content } = req.body;
+    console.log(`[Files] POST /write: path="${filePath}", root="${root}", contentLen=${content?.length || 0}`);
     if (!filePath) return res.status(400).json({ error: 'path required' });
 
     const absPath = getSafePath(root, filePath);
+    console.log(`[Files] write resolved: ${absPath}`);
     await fs.mkdir(path.dirname(absPath), { recursive: true });
     await fs.writeFile(absPath, content, 'utf-8');
+    console.log(`[Files] write success: ${absPath}`);
     res.json({ success: true });
   } catch (err) {
+    console.error(`[Files] write error: ${String(err)}`);
     res.status(500).json({ error: String(err) });
   }
 });

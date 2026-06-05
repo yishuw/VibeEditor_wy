@@ -5,7 +5,6 @@ export interface ProviderConfig {
   id: string;
   name: string;
   apiUrl: string;
-  apiKey: string;
   model: string;
 }
 
@@ -69,11 +68,11 @@ function createLLMSettings() {
     if (!found) {
       const first = providers.value.find(p => p.enabled);
       activeProvider.value = first
-        ? { id: first.id, name: first.name, apiUrl: first.apiUrl, apiKey: first.apiKey, model: first.model }
+        ? { id: first.id, name: first.name, apiUrl: first.apiUrl, model: first.model }
         : null;
     } else {
       activeProvider.value = {
-        id: found.id, name: found.name, apiUrl: found.apiUrl, apiKey: found.apiKey, model: found.model,
+        id: found.id, name: found.name, apiUrl: found.apiUrl, model: found.model,
       };
     }
   }
@@ -83,7 +82,7 @@ function createLLMSettings() {
     providers.value.push(entry);
     if (!activeId.value) {
       activeId.value = entry.id;
-      activeProvider.value = { id: entry.id, name: entry.name, apiUrl: entry.apiUrl, apiKey: entry.apiKey, model: entry.model };
+      activeProvider.value = { id: entry.id, name: entry.name, apiUrl: entry.apiUrl, model: entry.model };
     }
     return entry;
   }

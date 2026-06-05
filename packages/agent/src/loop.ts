@@ -1,16 +1,15 @@
 import { Agent, type AgentEvent } from './agent';
 import { Session } from './session';
 import type { AgentDefinition, AgentContext, AgentConfig } from './types/agent';
-import type { IAgentFileSystem } from './types/filesystem';
 import { ToolRegistry } from './tool-registry';
 import { createDefaultTools } from './tools/index';
 
 /** @deprecated Use Agent + Session instead */
 export class AgentLoop {
-  private fs: IAgentFileSystem;
+  private workspaceRoot: string;
 
-  constructor(fs: IAgentFileSystem) {
-    this.fs = fs;
+  constructor(workspaceRoot: string) {
+    this.workspaceRoot = workspaceRoot;
   }
 
   async run(
@@ -27,7 +26,7 @@ export class AgentLoop {
       maxTokens: config.maxTokens,
     };
 
-    const agent = new Agent(definition, config, this.fs);
+    const agent = new Agent(definition, config, this.workspaceRoot);
     await agent.execute(initialMessage, context, (e: AgentEvent) => {
       switch (e.type) {
         case 'chunk':

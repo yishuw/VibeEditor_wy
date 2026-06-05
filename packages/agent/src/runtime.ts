@@ -160,7 +160,7 @@ export class AgentRuntime {
     }
 
     const agent = this.createAgent();
-    const session = new Session('default', this.fs, agent);
+    const session = new Session('default', agent);
     const result = await session.start(message, context);
     return this.buildResult(result.mainResult.content, result.mainResult.turns, result.mainResult.toolCalls);
   }
@@ -177,7 +177,7 @@ export class AgentRuntime {
     }
 
     const agent = this.createAgent();
-    const session = new Session('default', this.fs, agent);
+    const session = new Session('default', agent);
 
     const emit = (e: AgentRuntimeEvent) => onEvent?.(e);
     const sessionEvent = (se: SessionEvent) => {
@@ -241,7 +241,7 @@ export class AgentRuntime {
         maxTurns: this.config.maxTurns,
       },
       this.agentConfig,
-      this.fs,
+      this.config.workspaceRoot,
       this.mcpTools.length > 0 ? this.mcpTools : undefined
     );
   }
@@ -271,10 +271,15 @@ export class AgentRuntime {
     turns: number,
     toolCalls: { type: string; params: Record<string, string> }[]
   ): ChatResult {
+    const hasEditTag = /<edit\s/i.test(content);
+    const edits = parseEditsFromText(content);
+    if (hasEditTag) {
+      console.log(`[AgentRuntime] Content has <edit> tag, parsed ${edits.length} edit(s): ${edits.map(e => e.path).join(', ') || '(none)'}`);
+    }
     return {
       content,
       turns,
-      edits: parseEditsFromText(content),
+      edits,
       toolCalls,
     };
   }

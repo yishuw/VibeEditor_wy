@@ -38,7 +38,7 @@ export class BashTool implements ITool {
 
     return new Promise<string>(resolve => {
       const child = exec(command, {
-        cwd: undefined,  // uses process.cwd()
+        cwd: context.workspaceRoot,
         timeout,
         maxBuffer: 10 * 1024 * 1024,  // 10 MB stdout+stderr
         windowsHide: true,

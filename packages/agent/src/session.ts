@@ -1,5 +1,4 @@
 import type { AgentContext, AgentResult, SessionMessage } from './types/agent';
-import type { IAgentFileSystem } from './types/filesystem';
 import { Agent, type AgentEvent, type AgentEventCallback } from './agent';
 
 /** 会话运行结果 */
@@ -22,14 +21,12 @@ export type SessionEventCallback = (event: SessionEvent) => void;
 
 export class Session {
   readonly id: string;
-  private fs: IAgentFileSystem;
   private mainAgent: Agent;
   private subAgents: Map<string, Agent> = new Map();
   messages: SessionMessage[] = [];
 
-  constructor(id: string, fs: IAgentFileSystem, mainAgent: Agent) {
+  constructor(id: string, mainAgent: Agent) {
     this.id = id;
-    this.fs = fs;
     this.mainAgent = mainAgent;
   }
 

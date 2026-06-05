@@ -8,7 +8,7 @@ import { createConfigRouter } from './routes/config';
 import { createWorkspaceRouter } from './routes/workspace';
 import { createLLMRouter } from './routes/llm';
 import { WorkspaceManager } from './workspace/manager';
-import { LLMGateway } from './llm/gateway';
+import { LLMGateway } from '@vibeeditor/agent';
 
 export interface ServerConfig {
   port?: number;

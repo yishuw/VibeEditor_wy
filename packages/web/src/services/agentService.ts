@@ -10,9 +10,9 @@ const DEFAULT_BASE_URL: string = typeof __SERVER_PORT__ !== 'undefined'
 /** Agent 运行配置 */
 export interface AgentConfig {
   mode: 'build' | 'plan';
+  providerId?: string;
   model?: string;
   apiUrl?: string;
-  apiKey?: string;
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;

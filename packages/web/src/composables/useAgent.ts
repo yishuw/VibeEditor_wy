@@ -103,8 +103,11 @@ export function useAgent(sessionId?: string) {
   const toolStatus = ref<string>('');
   const thinkingActive = ref(false);
 
-  function buildRequestConfig(_provider?: ProviderConfig | null): AgentConfig {
-    return { ...config.value };
+  function buildRequestConfig(provider?: ProviderConfig | null): AgentConfig {
+    return {
+      ...config.value,
+      providerId: provider?.id || undefined,
+    };
   }
 
   function extractEdits(msg: ChatMessage) {
@@ -221,7 +224,7 @@ export function useAgent(sessionId?: string) {
         workspaceId: store.activeWorkspaceId || undefined,
         sessionId,
       };
-      await service.streamMessage(
+      const response = await service.streamMessage(
         content,
         streamCtx,
         buildRequestConfig(provider),
@@ -283,6 +286,9 @@ export function useAgent(sessionId?: string) {
 
       const msg = messages.value.find(m => m.id === assistantMsgId);
       if (msg) {
+        if (response.edits && response.edits.length > 0) {
+          msg.edits = response.edits;
+        }
         extractEdits(msg);
       }
     } catch (e: any) {
