@@ -1,5 +1,9 @@
 import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
 import * as path from 'path';
+import { createLogger } from '../logger';
+import { LOG_CATEGORY } from '../log-categories';
+
+const log = createLogger(LOG_CATEGORY.GATEWAY);
 
 export interface LLMProvider {
   id: string;
@@ -102,6 +106,7 @@ export class LLMGateway {
     settings.providers.push(entry);
     if (!settings.activeProviderId) settings.activeProviderId = id;
     this.save(settings);
+    log.info(`Provider added: id=${id}, name="${entry.name}", model=${entry.model}`);
     return entry;
   }
 
@@ -111,6 +116,7 @@ export class LLMGateway {
     if (idx === -1) return null;
     settings.providers[idx] = { ...settings.providers[idx], ...updates };
     this.save(settings);
+    log.info(`Provider updated: id=${id}, name="${settings.providers[idx].name}"`);
     return settings.providers[idx];
   }
 
@@ -118,11 +124,13 @@ export class LLMGateway {
     const settings = this.load();
     const idx = settings.providers.findIndex(p => p.id === id);
     if (idx === -1) return false;
+    const name = settings.providers[idx].name;
     settings.providers.splice(idx, 1);
     if (settings.activeProviderId === id) {
       settings.activeProviderId = settings.providers[0]?.id || '';
     }
     this.save(settings);
+    log.info(`Provider deleted: id=${id}, name="${name}"`);
     return true;
   }
 
@@ -132,6 +140,7 @@ export class LLMGateway {
     if (!exists) return false;
     settings.activeProviderId = id;
     this.save(settings);
+    log.info(`Active provider set: id=${id}, name="${exists.name}"`);
     return true;
   }
 }

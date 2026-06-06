@@ -1,7 +1,7 @@
 <template>
   <div class="agent-panel">
-    <!-- 会话标签栏 -->
-    <div class="session-tabs-bar">
+    <!-- 会话标签栏：仅在有工作区或有提供商时显示 -->
+    <div v-if="editorStore.activeWorkspaceId || providerSettings.providers.value.length > 0" class="session-tabs-bar">
       <button class="session-new-btn" @click="createNewSession" :title="$t('agent.newSession')">+</button>
       <div class="session-tabs-scroll" ref="tabsScrollRef" @wheel="onTabsWheel" @scroll="updateScrollState">
         <div
@@ -43,6 +43,13 @@
         {{ $t('agent.guideDesc2') }}
       </div>
       <button class="guide-cta" @click="showSettings = true">{{ $t('agent.addProvider') }}</button>
+    </div>
+
+    <!-- 无工作区时的提示（仅 server 模式） -->
+    <div v-else-if="!editorStore.activeWorkspaceId" class="agent-guide">
+      <div class="guide-icon">📂</div>
+      <div class="guide-title">{{ $t('agent.noWorkspaceTitle') }}</div>
+      <div class="guide-desc">{{ $t('agent.noWorkspaceDesc') }}</div>
     </div>
 
     <!-- 无活跃会话时的提示 -->
@@ -233,6 +240,7 @@ import type { ParsedEdit } from '../../services/editParser';
 import SettingsDialog from './SettingsDialog.vue';
 import ModeSelector from './ModeSelector.vue';
 import ProviderSelect from './ProviderSelect.vue';
+import { webAgentLog } from '../../services/logger';
 
 const props = defineProps<{}>();
 
@@ -368,7 +376,7 @@ async function send() {
 
   const activeFilePath = editorStore.activeTab?.path;
 
-  console.log('[AgentPanel] send: starting streamMessage');
+  webAgentLog.info('send: starting streamMessage');
   const streamPromise = agent.streamMessage(
     text,
     providerSettings.activeProvider.value,
@@ -381,9 +389,9 @@ async function send() {
 
   try {
     await streamPromise;
-    console.log('[AgentPanel] send: streamMessage completed');
+    webAgentLog.info('send: streamMessage completed');
   } catch (e: any) {
-    console.error('[AgentPanel] send: streamMessage failed', e);
+    webAgentLog.error(`send: streamMessage failed: ${e.message}`, { name: e.name, message: e.message });
   }
 
   sessionStore.saveCurrentSession();

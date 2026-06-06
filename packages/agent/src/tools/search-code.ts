@@ -1,6 +1,10 @@
 import { readFileSync, readdirSync } from 'fs';
 import * as path from 'path';
 import type { ITool, ToolInputSchema, ToolExecutionContext, ToolAnnotations } from '../types/tool';
+import { createLogger } from '../logger';
+import { LOG_CATEGORY } from '../log-categories';
+
+const log = createLogger(LOG_CATEGORY.FILE_OPS);
 
 const inputSchema: ToolInputSchema = {
   type: 'object',
@@ -39,6 +43,7 @@ export class SearchCodeTool implements ITool {
     const pattern = params.pattern;
     const searchPath = params.path || '.';
     const maxResults = parseInt(params.maxResults || '20');
+    const startMs = Date.now();
 
     // Resolve search path — if absolute, validate it; if relative, resolve against workspaceRoot
     const rootPath = context.workspaceRoot;
@@ -51,6 +56,7 @@ export class SearchCodeTool implements ITool {
     try {
       regex = new RegExp(pattern, 'gi');
     } catch {
+      log.warn(`search_code: invalid regex`, { pattern });
       return `Invalid regex pattern: "${pattern}"`;
     }
 
@@ -93,7 +99,11 @@ export class SearchCodeTool implements ITool {
 
     walkDir(absSearchPath);
 
-    if (results.length === 0) return `No matches found for "${pattern}"`;
+    if (results.length === 0) {
+      log.info(`search_code done: no matches`, { pattern, path: searchPath });
+      return `No matches found for "${pattern}"`;
+    }
+    log.info(`search_code done: ${results.length} matches, ${Date.now() - startMs}ms`, { pattern, path: searchPath, matches: results.length });
     return `## Search results for "${pattern}":\n${results.join('\n')}`;
   }
 }

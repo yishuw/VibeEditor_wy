@@ -14,7 +14,7 @@ export {
 } from './runtime';
 
 // -- 核心类型 --
-export type { AgentContext, AgentResult } from './types/agent';
+export type { AgentContext, AgentResult, SessionMessage } from './types/agent';
 export type { AgentEditResult, AgentMessage } from './types/message';
 export type { IAgentFileSystem, FileEntry } from './types/filesystem';
 export type { ITool } from './types/tool';
@@ -44,4 +44,5 @@ export { McpManager } from './mcp/manager';
 export type { McpToolInfo } from './mcp/manager';
 
 // -- 结构化日志 --
-export { createLogger, type Logger, type LogLevel } from './logger';
+export { createLogger, runWithContext, type Logger, type LogLevel } from './logger';
+export { LOG_CATEGORY, type LogCategory } from './log-categories';

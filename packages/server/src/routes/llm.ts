@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { LLMGateway, type LLMProvider } from '@vibeeditor/agent';
+import { LLMGateway, type LLMProvider, createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
+
+const log = createLogger(LOG_CATEGORY.GATEWAY);
 
 export function createLLMRouter(gateway: LLMGateway) {
   const router = Router();
@@ -87,6 +89,8 @@ export function createLLMRouter(gateway: LLMGateway) {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
+      const startMs = Date.now();
+
       try {
         const modelsResp = await fetch(`${apiUrl}/models`, { headers });
         if (modelsResp.ok) {
@@ -94,6 +98,7 @@ export function createLLMRouter(gateway: LLMGateway) {
           const models = (data.data && Array.isArray(data.data))
             ? data.data.map((m: any) => m.id || m.name).filter(Boolean)
             : [];
+          log.info(`Provider test OK (OpenAI): id=${req.params.id}, url=${apiUrl}, ${models.length} models, ${Date.now() - startMs}ms`);
           res.json({ success: true, models });
           return;
         }
@@ -107,13 +112,16 @@ export function createLLMRouter(gateway: LLMGateway) {
           const models = (data.models && Array.isArray(data.models))
             ? data.models.map((m: any) => m.name || m.id).filter(Boolean)
             : [];
+          log.info(`Provider test OK (Ollama): id=${req.params.id}, url=${baseUrl}, ${models.length} models, ${Date.now() - startMs}ms`);
           res.json({ success: true, models });
           return;
         }
       } catch { /* ignore */ }
 
+      log.warn(`Provider test failed: id=${req.params.id}, url=${apiUrl}`);
       res.json({ success: false, error: 'Unable to connect or fetch models' });
     } catch (err) {
+      log.error(`Provider test error: id=${req.params.id}, ${String(err)}`);
       res.status(500).json({ error: String(err) });
     }
   });

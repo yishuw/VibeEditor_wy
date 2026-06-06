@@ -1,6 +1,9 @@
 import { IpcMain, Dialog } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
+
+const log = createLogger(LOG_CATEGORY.FILE_OPS);
 
 let currentRoot = process.cwd();
 
@@ -44,14 +47,17 @@ export function registerFileHandlers(ipcMain: IpcMain, dialog: Dialog) {
   });
 
   ipcMain.handle('file:write', async (_e, filePath: string, content: string) => {
+    const startMs = Date.now();
     const p = resolvePath(filePath);
     await fs.mkdir(path.dirname(p), { recursive: true });
     await fs.writeFile(p, content, 'utf-8');
+    log.info(`write done: ${content.length} chars, ${Date.now() - startMs}ms (IPC)`, { path: filePath, size: content.length });
   });
 
   ipcMain.handle('file:delete', async (_e, filePath: string) => {
     const p = resolvePath(filePath);
     await fs.unlink(p);
+    log.info(`delete done (IPC)`, { path: filePath });
   });
 
   ipcMain.handle('file:readDir', async (_e, dirPath: string) => {
@@ -77,11 +83,13 @@ export function registerFileHandlers(ipcMain: IpcMain, dialog: Dialog) {
   ipcMain.handle('file:createDir', async (_e, dirPath: string) => {
     const p = resolvePath(dirPath);
     await fs.mkdir(p, { recursive: true });
+    log.info(`mkdir done (IPC)`, { path: dirPath });
   });
 
   ipcMain.handle('file:deleteDir', async (_e, dirPath: string, recursive = true) => {
     const p = resolvePath(dirPath);
     await fs.rm(p, { recursive, force: true });
+    log.info(`rmdir done (IPC)`, { path: dirPath, recursive });
   });
 
   ipcMain.handle('file:exists', async (_e, filePath: string) => {
@@ -101,10 +109,12 @@ export function registerFileHandlers(ipcMain: IpcMain, dialog: Dialog) {
   });
 
   ipcMain.handle('file:rename', async (_e, oldPath: string, newPath: string) => {
+    const startMs = Date.now();
     const src = resolvePath(oldPath);
     const dest = resolvePath(newPath);
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.rename(src, dest);
+    log.info(`rename done: ${Date.now() - startMs}ms (IPC)`, { oldPath, newPath });
   });
 
   ipcMain.handle('dialog:openFolder', async () => {

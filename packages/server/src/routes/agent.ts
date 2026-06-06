@@ -38,6 +38,7 @@ interface StreamRequestBody {
   context?: AgentContext;
   workspaceRoot?: string;
   workspaceId?: string;
+  sessionId?: string;
   config?: Record<string, unknown>;
 }
 
@@ -64,14 +65,14 @@ export function createAgentRouter(configDir: string, workspaceManager: Workspace
 
   router.post('/chat', async (req: Request, res: Response) => {
     try {
-      const { message, context, workspaceId } = req.body;
+      const { message, context, sessionId } = req.body;
       if (!message) {
         res.status(400).json({ error: 'message is required' });
         return;
       }
 
       const runtime = getRuntime(req.body);
-      const result = await runtime.chat(message, context as AgentContext);
+      const result = await runtime.chat(message, context as AgentContext, sessionId || 'default');
 
       res.json({
         id: `agent_${Date.now()}`,
@@ -87,7 +88,7 @@ export function createAgentRouter(configDir: string, workspaceManager: Workspace
 
   router.post('/stream', async (req: Request, res: Response) => {
     const body = req.body as StreamRequestBody;
-    const { message, context, workspaceRoot, workspaceId } = body;
+    const { message, context, workspaceRoot, workspaceId, sessionId } = body;
     const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const reqLog = log.child({ requestId, mode: body.config?.mode || body.config?.mode });
     reqLog.info(`Stream request started (workspaceId=${workspaceId || 'none'})`);
@@ -122,30 +123,36 @@ export function createAgentRouter(configDir: string, workspaceManager: Workspace
       }
 
       reqLog.info('Stream started');
-      const result = await runtime.chatStream(message, context as AgentContext, (e: AgentRuntimeEvent) => {
-        switch (e.type) {
-          case 'chunk':
-            writeSSE({ chunk: e.text });
-            break;
-          case 'thinking':
-            writeSSE({ thinking: e.text });
-            break;
-          case 'tool_start':
-            writeSSE({ tool_start: `🔍 ${e.toolName}: ${e.toolLabel || ''}` });
-            break;
-          case 'tool_end':
-            writeSSE({ tool_end: `${e.toolName} complete` });
-            break;
-          case 'tool_result':
-            writeSSE({ tool_result: { name: e.toolName, content: e.text } });
-            break;
-          case 'done':
-            break;
-          case 'error':
-            writeSSE({ error: e.error });
-            break;
-        }
-      });
+      const result = await runtime.chatStream(
+        message,
+        context as AgentContext,
+        (e: AgentRuntimeEvent) => {
+          switch (e.type) {
+            case 'chunk':
+              writeSSE({ chunk: e.text });
+              break;
+            case 'thinking':
+              writeSSE({ thinking: e.text });
+              break;
+            case 'tool_start':
+              writeSSE({ tool_start: `🔍 ${e.toolName}: ${e.toolLabel || ''}` });
+              break;
+            case 'tool_end':
+              writeSSE({ tool_end: `${e.toolName} complete` });
+              break;
+            case 'tool_result':
+              writeSSE({ tool_result: { name: e.toolName, content: e.text } });
+              break;
+            case 'done':
+              break;
+            case 'error':
+              writeSSE({ error: e.error });
+              break;
+          }
+        },
+        undefined,  // signal — not used in SSE path currently
+        sessionId || 'default'
+      );
       if (result.edits.length > 0) {
         reqLog.info(`Sending ${result.edits.length} edit(s) via SSE`);
       }

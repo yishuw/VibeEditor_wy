@@ -9,6 +9,7 @@ import {
 } from '../services/fileService';
 import { getEditorInstance } from '../services/editorInstance';
 import { useEditorStore, getViewModeFromPath } from '../stores/editor';
+import { useSessionStore } from '../stores/sessions';
 import { useFileClipboard } from './useFileClipboard';
 
 /**
@@ -177,6 +178,10 @@ export function useFileSystem() {
     store.activeWorkspaceId = null;
     store.workspaceMode = env === 'electron' ? 'local' : 'server';
     store.fileTreeNodes = [];
+
+    // 单文件工作区：清空 Agent 会话（不持久化）
+    const sessionStore = useSessionStore();
+    await sessionStore.bindWorkspace(null);
 
     // 用完整路径打开文件，确保标签页路径可被 Agent 编辑匹配
     await openAndReadFile(normalizedPath);
@@ -378,6 +383,9 @@ export function useFileSystem() {
         const rootName = root.split(/[\\/]/).pop() || root;
         store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
         store.activeWorkspaceId = null;
+        // Electron 模式：无服务端工作区，Agent 会话用 localStorage
+        const sessionStore = useSessionStore();
+        await sessionStore.bindWorkspace(null);
         await loadDirectory('.');
       }
       return root;
@@ -427,6 +435,10 @@ export function useFileSystem() {
       store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode: 'server', workspaceId: info.workspaceId }];
       store.activeWorkspaceId = info.workspaceId;
       store.workspaceMode = 'server';
+
+      // 绑定 Agent 会话到工作区
+      const sessionStore = useSessionStore();
+      await sessionStore.bindWorkspace(info.workspaceId, info.agentSessions);
 
       await loadDirectory('.');
 

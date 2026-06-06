@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentContext } from './types/agent';
+import type { AgentConfig, AgentContext, SessionMessage } from './types/agent';
 import type { IAgentFileSystem } from './types/filesystem';
 import type { AgentEditResult } from './types/message';
 import type { McpServerEntry, McpConfig } from './mcp/config';
@@ -74,6 +74,7 @@ export class AgentRuntime {
   private mcpManager: McpManager | null = null;
   private mcpTools: ITool[] = [];
   private initialized = false;
+  private sessionMap = new Map<string, Session>();
 
   constructor(config: AgentRuntimeConfig) {
     this.config = config;
@@ -159,7 +160,7 @@ export class AgentRuntime {
     await this.initialize();
   }
 
-  async chat(message: string, context: AgentContext): Promise<ChatResult> {
+  async chat(message: string, context: AgentContext, sessionId = 'default'): Promise<ChatResult> {
     await this.initialize();
 
     if (this.agentConfig.mode === 'plan') {
@@ -169,8 +170,7 @@ export class AgentRuntime {
       return this.buildResult(content, 1, []);
     }
 
-    const agent = this.createAgent();
-    const session = new Session('default', agent);
+    const session = this.getOrCreateSession(sessionId);
     const result = await session.start(message, context);
     return this.buildResult(result.mainResult.content, result.mainResult.turns, result.mainResult.toolCalls);
   }
@@ -179,7 +179,8 @@ export class AgentRuntime {
     message: string,
     context: AgentContext,
     onEvent?: AgentRuntimeEventCallback,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    sessionId = 'default'
   ): Promise<ChatResult> {
     await this.initialize();
 
@@ -187,8 +188,7 @@ export class AgentRuntime {
       return this.runPlanStream(message, context, onEvent);
     }
 
-    const agent = this.createAgent();
-    const session = new Session('default', agent);
+    const session = this.getOrCreateSession(sessionId);
 
     const emit = (e: AgentRuntimeEvent) => onEvent?.(e);
     const sessionEvent = (se: SessionEvent) => {
@@ -240,6 +240,38 @@ export class AgentRuntime {
 
   get fileSystem(): IAgentFileSystem {
     return this.fs;
+  }
+
+  // ====================== Session 管理 ======================
+
+  private getOrCreateSession(sessionId: string): Session {
+    let session = this.sessionMap.get(sessionId);
+    if (!session) {
+      const agent = this.createAgent();
+      session = new Session(sessionId, agent);
+      this.sessionMap.set(sessionId, session);
+    }
+    return session;
+  }
+
+  getSessionMessages(sessionId: string): SessionMessage[] {
+    const session = this.sessionMap.get(sessionId);
+    return session ? [...session.messages] : [];
+  }
+
+  restoreSession(sessionId: string, messages: SessionMessage[]): void {
+    const agent = this.createAgent();
+    const session = new Session(sessionId, agent);
+    session.messages = [...messages];
+    this.sessionMap.set(sessionId, session);
+  }
+
+  getSessionIds(): string[] {
+    return Array.from(this.sessionMap.keys());
+  }
+
+  deleteSession(sessionId: string): void {
+    this.sessionMap.delete(sessionId);
   }
 
   // ====================== 内部实现 ======================

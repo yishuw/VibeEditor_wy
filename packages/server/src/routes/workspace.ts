@@ -5,6 +5,9 @@ import * as os from 'os';
 import type { FileEntry } from '@vibeeditor/core';
 import { WorkspaceManager } from '../workspace/manager';
 import type { LLMGateway } from '@vibeeditor/agent';
+import { createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
+
+const log = createLogger(LOG_CATEGORY.WORKSPACE);
 
 function getSystemRoots(): string[] {
   if (process.platform === 'win32') {
@@ -97,10 +100,12 @@ export function createWorkspaceRouter(manager: WorkspaceManager, llmGateway: LLM
         return;
       }
 
+      log.info(`Opening workspace: rootPath="${rootPath}"`);
       const data = await manager.openWorkspace(rootPath, llmGateway);
       res.json(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      log.error(`Workspace open failed: ${msg}`, { rootPath: req.body.rootPath });
       res.status(500).json({ error: msg });
     }
   });
@@ -149,7 +154,56 @@ export function createWorkspaceRouter(manager: WorkspaceManager, llmGateway: LLM
         return;
       }
 
+      log.info(`Closing workspace: id=${workspaceId}`);
       await manager.closeWorkspace(workspaceId);
+      res.json({ success: true });
+    } catch (err) {
+      const msg = String(err);
+      log.error(`Workspace close failed: ${msg}`, { workspaceId: req.body.workspaceId });
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // --- Agent Session 持久化端点 ---
+
+  router.get('/sessions', async (req: Request, res: Response) => {
+    try {
+      const workspaceId = req.query.workspaceId as string;
+      if (!workspaceId) {
+        res.status(400).json({ error: 'workspaceId is required' });
+        return;
+      }
+      const sessions = manager.getAgentSessions(workspaceId);
+      res.json({ sessions });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post('/sessions', async (req: Request, res: Response) => {
+    try {
+      const { workspaceId, session } = req.body;
+      if (!workspaceId || !session) {
+        res.status(400).json({ error: 'workspaceId and session are required' });
+        return;
+      }
+      await manager.saveAgentSession(workspaceId, session);
+      res.json({ success: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  router.delete('/sessions/:sessionId', async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const workspaceId = req.query.workspaceId as string;
+      if (!workspaceId || !sessionId) {
+        res.status(400).json({ error: 'workspaceId and sessionId are required' });
+        return;
+      }
+      await manager.deleteAgentSession(workspaceId, sessionId);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });

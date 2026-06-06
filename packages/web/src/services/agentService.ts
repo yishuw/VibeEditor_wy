@@ -1,4 +1,5 @@
 import { i18n } from '../locales';
+import { webAgentLog } from './logger';
 
 declare const __SERVER_PORT__: number;
 
@@ -76,7 +77,7 @@ export function createAgentService(baseUrl = DEFAULT_BASE_URL) {
       if (!res.ok) {
         const errText = await res.text();
         const msg = `${i18n.global.t('errors.apiError')} ${res.status}: ${errText}`;
-        console.error('[agentService] streamMessage fetch error:', msg);
+        webAgentLog.error(`streamMessage fetch error: ${msg}`);
         throw new Error(msg);
       }
 

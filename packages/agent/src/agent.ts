@@ -103,16 +103,19 @@ export class Agent {
 
     messages.push({ role: 'user', content: message });
 
+    const executeStartMs = Date.now();
     let fullContent = '';
     const toolCalls: { type: string; params: Record<string, string> }[] = [];
     let turns = 0;
 
     for (let turn = 0; turn < maxTurns; turn++) {
       turns = turn + 1;
+      const turnStartMs = Date.now();
       const response = await this.provider.chat(messages);
 
       if (!response) {
         emit({ type: 'done' });
+        log.info(`Turn ${turns}/${maxTurns}: empty response, stopping`);
         break;
       }
 
@@ -147,15 +150,33 @@ export class Agent {
           messages.push({ role: 'user', content: `Tool result:\n${result}` });
         }
 
+        log.info(`Turn ${turns}/${maxTurns}: ${parsedTools.length} tool(s), ${Date.now() - turnStartMs}ms`, {
+          agentId: this.definition.id,
+          turn: turns,
+          tools: parsedTools.map(t => t.type),
+          messages: messages.length,
+        });
+
         continue;
       }
 
       emit({ type: 'chunk', text: response });
       fullContent += response;
       emit({ type: 'done' });
+      log.info(`Turn ${turns}/${maxTurns}: final response, ${response.length} chars, ${Date.now() - turnStartMs}ms`, {
+        agentId: this.definition.id,
+        turn: turns,
+        contentLen: response.length,
+      });
       break;
     }
 
+    log.info(`execute done: ${fullContent.length} chars, ${turns} turns, ${toolCalls.length} tool calls, ${Date.now() - executeStartMs}ms`, {
+      agentId: this.definition.id,
+      contentLen: fullContent.length,
+      turns,
+      toolCalls: toolCalls.length,
+    });
     return {
       agentId: this.definition.id,
       content: fullContent,
@@ -217,6 +238,7 @@ export class Agent {
 
     messages.push({ role: 'user', content: message });
 
+    const executeStartMs = Date.now();
     let fullContent = '';
     const toolCalls: { type: string; params: Record<string, string> }[] = [];
     let turns = 0;
@@ -224,9 +246,11 @@ export class Agent {
     for (let turn = 0; turn < maxTurns; turn++) {
       if (signal?.aborted) {
         emit({ type: 'done' });
+        log.info(`Turn ${turns}/${maxTurns}: aborted by signal`);
         break;
       }
       turns = turn + 1;
+      const turnStartMs = Date.now();
 
       const response = await this.provider.chatStream(messages, (type, text) => {
         if (type === 'thinking') {
@@ -238,6 +262,7 @@ export class Agent {
 
       if (!response) {
         emit({ type: 'done' });
+        log.info(`Turn ${turns}/${maxTurns}: empty stream response, stopping`);
         break;
       }
 
@@ -263,6 +288,13 @@ export class Agent {
           messages.push({ role: 'user', content: `Tool result:\n${result}` });
         }
 
+        log.info(`Turn ${turns}/${maxTurns}: ${parsedTools.length} tool(s), ${Date.now() - turnStartMs}ms`, {
+          agentId: this.definition.id,
+          turn: turns,
+          tools: parsedTools.map(t => t.type),
+          messages: messages.length,
+        });
+
         continue;
       }
 
@@ -272,12 +304,23 @@ export class Agent {
         emit({ type: 'chunk', text: '\n\n*[响应过长，已截断]*' });
         fullContent += '\n\n*[响应过长，已截断]*';
       }
+      log.info(`Turn ${turns}/${maxTurns}: final response, ${response.length} chars, ${Date.now() - turnStartMs}ms`, {
+        agentId: this.definition.id,
+        turn: turns,
+        contentLen: response.length,
+      });
       emit({ type: 'done' });
       break;
     }
 
     const hasEdit = /<edit\s/i.test(fullContent);
-    log.info(`executeStream done: ${fullContent.length} chars, hasEdit=${hasEdit}, turns=${turns}`);
+    log.info(`executeStream done: ${fullContent.length} chars, hasEdit=${hasEdit}, turns=${turns}, ${toolCalls.length} tool calls, ${Date.now() - executeStartMs}ms`, {
+      agentId: this.definition.id,
+      contentLen: fullContent.length,
+      hasEdit,
+      turns,
+      toolCalls: toolCalls.length,
+    });
     return {
       agentId: this.definition.id,
       content: fullContent,

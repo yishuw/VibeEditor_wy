@@ -1,5 +1,9 @@
 import type { AgentContext, AgentResult, SessionMessage } from './types/agent';
 import { Agent, type AgentEvent, type AgentEventCallback } from './agent';
+import { createLogger } from './logger';
+import { LOG_CATEGORY } from './log-categories';
+
+const log = createLogger(LOG_CATEGORY.SESSION);
 
 /** 会话运行结果 */
 export interface SessionResult {
@@ -42,6 +46,9 @@ export class Session {
     onEvent?: SessionEventCallback
   ): Promise<SessionResult> {
     const emit = (e: SessionEvent) => onEvent?.(e);
+    const startMs = Date.now();
+
+    log.info(`Session start: sessionId=${this.id}, agentId=${this.mainAgent.definition.id}`);
 
     this.messages.push({
       id: this.nextId(),
@@ -64,6 +71,13 @@ export class Session {
 
     emit({ type: 'done' });
 
+    log.info(`Session done: ${mainResult.turns} turns, ${subResults.length} sub-agent(s), ${Date.now() - startMs}ms`, {
+      sessionId: this.id,
+      turns: mainResult.turns,
+      subAgents: subResults.length,
+      contentLen: mainResult.content.length,
+    });
+
     return {
       sessionId: this.id,
       mainResult,
@@ -79,6 +93,9 @@ export class Session {
     signal?: AbortSignal
   ): Promise<SessionResult> {
     const emit = (e: SessionEvent) => onEvent?.(e);
+    const startMs = Date.now();
+
+    log.info(`Session stream start: sessionId=${this.id}, agentId=${this.mainAgent.definition.id}`);
 
     this.messages.push({
       id: this.nextId(),
@@ -100,6 +117,13 @@ export class Session {
     const subResults = await this.handleDelegation(mainResult, context, emit);
 
     emit({ type: 'done' });
+
+    log.info(`Session stream done: ${mainResult.turns} turns, ${subResults.length} sub-agent(s), ${Date.now() - startMs}ms`, {
+      sessionId: this.id,
+      turns: mainResult.turns,
+      subAgents: subResults.length,
+      contentLen: mainResult.content.length,
+    });
 
     return {
       sessionId: this.id,
@@ -201,11 +225,13 @@ export class Session {
       const task = m[2];
       if (!this.subAgents.has(agentId)) continue;
 
+      log.info(`Sub-agent delegation: agentId=${agentId}, task="${task.slice(0, 100)}"`);
       emit({ type: 'sub_agent_start', agentId });
 
       const subResult = await this.delegateToSubAgent(agentId, task, context);
       subResults.push(subResult);
 
+      log.info(`Sub-agent done: agentId=${agentId}, ${subResult.content.length} chars, ${subResult.turns} turns`);
       emit({ type: 'sub_agent_done', agentId, data: subResult.content });
     }
 

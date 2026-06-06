@@ -158,6 +158,8 @@ export default {
     newSession: 'New Session',
     defaultSessionName: 'New Session',
     noSessionPrompt: 'Click + to start a new session',
+    noWorkspaceTitle: 'No Workspace Open',
+    noWorkspaceDesc: 'Open a folder to start chatting with the AI agent and edit files.',
   },
   settingsDialog: {
     title: 'LLM Provider Settings',

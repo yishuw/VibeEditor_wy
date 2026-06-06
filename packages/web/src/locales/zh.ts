@@ -158,6 +158,8 @@ export default {
     newSession: '新建会话',
     defaultSessionName: '新会话',
     noSessionPrompt: '点击 + 新建会话以开始对话',
+    noWorkspaceTitle: '未打开工作区',
+    noWorkspaceDesc: '请先打开一个文件夹，即可开始与 AI Agent 对话并编辑文件。',
   },
   settingsDialog: {
     title: 'LLM 提供商设置',

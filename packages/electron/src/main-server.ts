@@ -5,6 +5,9 @@ import * as path from 'path';
 import { startServer } from '@vibeeditor/server';
 import type { Server } from 'http';
 import { registerFileHandlers } from './ipc/file-handler';
+import { createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
+
+const log = createLogger(LOG_CATEGORY.ELECTRON);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -262,7 +265,7 @@ app.whenReady().then(() => {
     app.quit();
   });
   httpServer.on('listening', () => {
-    console.log(`[VibeEditor] Server started on port ${SERVER_PORT}`);
+    log.info(`Server started on port ${SERVER_PORT}`, { port: SERVER_PORT, configDir: resolvedConfigDir });
 
     registerVibeProtocol();
     registerFileHandlers(ipcMain, dialog);
@@ -319,7 +322,7 @@ app.on('before-quit', () => {
   if (httpServer) {
     httpServer.close();
     httpServer = null;
-    console.log('[VibeEditor] Server stopped');
+    log.info('Server stopped');
   }
 });
 

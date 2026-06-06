@@ -5,6 +5,7 @@ import type { ProviderConfig } from './useLLMSettings';
 import type { ParsedEdit } from '../services/editParser';
 import { useEditorStore } from '../stores/editor';
 import { getEditorInstance } from '../services/editorInstance';
+import { webAgentLog } from '../services/logger';
 
 /** Agent 运行上下文 —— 当前 IDE 环境快照 */
 export interface AgentContext {
@@ -328,7 +329,7 @@ export function useAgent(sessionId?: string) {
         extractEdits(msg);
       }
     } catch (e: any) {
-      console.error('[useAgent] streamMessage error:', e.name, e.message, e);
+      webAgentLog.error(`streamMessage error: ${e.name} ${e.message}`, { name: e.name, message: e.message });
       if (e.name === 'AbortError') {
         const msg = messages.value.find(m => m.id === assistantMsgId);
         if (msg) {

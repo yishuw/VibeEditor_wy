@@ -220,7 +220,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed, onMounted, nextTick } from 'vue';
+import { ref, reactive, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
@@ -230,6 +230,7 @@ import { useWindowResize } from '../../composables/useWindowResize';
 import type { ResizeEdge } from '../../composables/useWindowResize';
 import { useFileTreeContextMenu } from '../../composables/useFileTreeContextMenu';
 import Toolbar from '../toolbar/Toolbar.vue';
+import { webFileLog } from '../../services/logger';
 import ActivityBar from './ActivityBar.vue';
 import type { ActivityItem } from './ActivityBar.vue';
 import SideBar from './SideBar.vue';
@@ -406,7 +407,7 @@ async function undoLastEdits() {
           store.saveTab(tab.id);
         }
       } catch (e: any) {
-        console.error('Failed to undo edit for', filePath, e);
+        webFileLog.error(`Failed to undo edit for ${filePath}: ${(e as Error).message}`);
       }
     }
   }
@@ -542,6 +543,17 @@ watch(() => store.fileTreeNodes.length, (count) => {
     ];
   }
 });
+
+// 标签页变化时自动持久化到 .vibeeditor/workspace.json
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => [store.tabs.map(t => ({ path: t.path, isUntitled: t.isUntitled })), store.activeTabId],
+  () => {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => fs.persistWorkspaceState(), 300);
+  },
+  { deep: true }
+);
 
 /**
  * 文件保存后的回调：刷新所有已展开目录的内容
@@ -808,18 +820,10 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 
       await fs.client.writeFile(resolvedPath, edit.content);
 
-      // 更新已打开的标签页：精确匹配 + 后缀模糊匹配
-      let tab = store.tabs.find(t => t.path === resolvedPath);
-      if (!tab) tab = store.tabs.find(t => t.path.endsWith('/' + edit.path) || t.path.endsWith('\\' + edit.path));
-      if (!tab && resolvedPath === edit.path) tab = store.tabs.find(t => t.path.endsWith(edit.path));
-      if (tab) {
-        store.updateContent(tab.id, edit.content);
-        store.saveTab(tab.id);
-      } else {
-        // 文件未打开，自动打开并标记为已保存
-        store.openFile(resolvedPath, edit.content);
-        store.saveTab(store.activeTabId!);
-      }
+      // openFile 内部使用 pathsMatch 处理相对/绝对路径混用，不会创建重复标签
+      store.openFile(resolvedPath, edit.content);
+      store.updateContent(store.activeTabId!, edit.content);
+      store.saveTab(store.activeTabId!);
 
       // 刷新文件树以反映变化
       if (store.fileTreeNodes.length > 0) {
@@ -829,6 +833,9 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
       fs.error = `Edit failed: ${edit.path} - ${e.message}`;
     }
   }
+
+  // 持久化标签页状态（Agent 编辑可能打开或更新了标签页）
+  fs.persistWorkspaceState();
 }
 </script>
 

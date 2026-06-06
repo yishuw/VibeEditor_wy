@@ -2,6 +2,9 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { FileEntry } from '@vibeeditor/core';
+import { createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
+
+const log = createLogger(LOG_CATEGORY.FILE_OPS);
 
 const router = Router();
 
@@ -73,8 +76,10 @@ router.get('/list', async (req: Request, res: Response) => {
       return a.name.localeCompare(b.name);
     });
 
+    log.debug(`list done: ${result.length} entries`, { path: dirPath, entries: result.length });
     res.json(result);
   } catch (err) {
+    log.error(`list failed: ${String(err)}`, { path: req.query.path as string, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -93,12 +98,15 @@ router.get('/read', async (req: Request, res: Response) => {
       const ext = path.extname(absPath).toLowerCase().replace('.', '');
       const mime = getMimeType(ext);
       const base64 = buf.toString('base64');
+      log.debug(`read done: ${buf.length} bytes (binary)`, { path: filePath, size: buf.length, mime });
       res.json({ path: filePath, content: `data:${mime};base64,${base64}` });
     } else {
       const content = await fs.readFile(absPath, 'utf-8');
+      log.debug(`read done: ${content.length} chars`, { path: filePath, size: content.length });
       res.json({ path: filePath, content });
     }
   } catch (err) {
+    log.error(`read failed: ${String(err)}`, { path: req.query.path as string, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -111,27 +119,28 @@ router.get('/read-buffer', async (req: Request, res: Response) => {
 
     const absPath = getSafePath(root, filePath);
     const buffer = await fs.readFile(absPath);
+    log.debug(`read-buffer done: ${buffer.length} bytes`, { path: filePath, size: buffer.length });
     res.json({ path: filePath, data: buffer.toString('base64') });
   } catch (err) {
+    log.error(`read-buffer failed: ${String(err)}`, { path: req.query.path as string, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
 
 router.post('/write', async (req: Request, res: Response) => {
+  const startMs = Date.now();
   try {
     const root = resolveRoot(req.body.root as string | undefined);
     const { path: filePath, content } = req.body;
-    console.log(`[Files] POST /write: path="${filePath}", root="${root}", contentLen=${content?.length || 0}`);
     if (!filePath) return res.status(400).json({ error: 'path required' });
 
     const absPath = getSafePath(root, filePath);
-    console.log(`[Files] write resolved: ${absPath}`);
     await fs.mkdir(path.dirname(absPath), { recursive: true });
     await fs.writeFile(absPath, content, 'utf-8');
-    console.log(`[Files] write success: ${absPath}`);
+    log.info(`write done: ${content?.length || 0} chars, ${Date.now() - startMs}ms`, { path: filePath, size: content?.length || 0 });
     res.json({ success: true });
   } catch (err) {
-    console.error(`[Files] write error: ${String(err)}`);
+    log.error(`write failed: ${String(err)}`, { path: req.body.path, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -144,8 +153,10 @@ router.delete('/delete', async (req: Request, res: Response) => {
 
     const absPath = getSafePath(root, filePath);
     await fs.unlink(absPath);
+    log.info(`delete done`, { path: filePath });
     res.json({ success: true });
   } catch (err) {
+    log.error(`delete failed: ${String(err)}`, { path: req.query.path as string, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -158,8 +169,10 @@ router.post('/mkdir', async (req: Request, res: Response) => {
 
     const absPath = getSafePath(root, dirPath);
     await fs.mkdir(absPath, { recursive: true });
+    log.info(`mkdir done`, { path: dirPath });
     res.json({ success: true });
   } catch (err) {
+    log.error(`mkdir failed: ${String(err)}`, { path: req.body.path, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -172,8 +185,10 @@ router.delete('/rmdir', async (req: Request, res: Response) => {
 
     const absPath = getSafePath(root, dirPath);
     await fs.rm(absPath, { recursive: req.query.recursive === 'true', force: true });
+    log.info(`rmdir done`, { path: dirPath, recursive: req.query.recursive === 'true' });
     res.json({ success: true });
   } catch (err) {
+    log.error(`rmdir failed: ${String(err)}`, { path: req.query.path as string, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -217,6 +232,7 @@ router.get('/stat', async (req: Request, res: Response) => {
 });
 
 router.post('/rename', async (req: Request, res: Response) => {
+  const startMs = Date.now();
   try {
     const root = resolveRoot(req.body.root as string | undefined);
     const { oldPath, newPath } = req.body;
@@ -226,8 +242,10 @@ router.post('/rename', async (req: Request, res: Response) => {
     const absNew = getSafePath(root, newPath);
     await fs.mkdir(path.dirname(absNew), { recursive: true });
     await fs.rename(absOld, absNew);
+    log.info(`rename done: ${Date.now() - startMs}ms`, { oldPath, newPath });
     res.json({ success: true });
   } catch (err) {
+    log.error(`rename failed: ${String(err)}`, { oldPath: req.body.oldPath, newPath: req.body.newPath, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });

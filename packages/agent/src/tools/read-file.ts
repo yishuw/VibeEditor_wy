@@ -1,6 +1,10 @@
 import { readFileSync } from 'fs';
 import * as path from 'path';
 import type { ITool, ToolInputSchema, ToolExecutionContext, ToolAnnotations } from '../types/tool';
+import { createLogger } from '../logger';
+import { LOG_CATEGORY } from '../log-categories';
+
+const log = createLogger(LOG_CATEGORY.FILE_OPS);
 
 const inputSchema: ToolInputSchema = {
   type: 'object',
@@ -31,11 +35,14 @@ export class ReadFileTool implements ITool {
   readonly annotations = annotations;
 
   async execute(params: Record<string, string>, context: ToolExecutionContext): Promise<string> {
+    const startMs = Date.now();
     try {
       const absPath = resolvePath(context.workspaceRoot, params.path);
       const content = readFileSync(absPath, 'utf-8');
+      log.info(`read_file done: ${content.length} chars, ${Date.now() - startMs}ms`, { path: params.path, size: content.length });
       return `## File: ${params.path}\n\`\`\`\n${content}\n\`\`\``;
     } catch (e: any) {
+      log.warn(`read_file failed: ${e.message}`, { path: params.path, error: e.message });
       return `Error reading ${params.path}: ${e.message}`;
     }
   }
