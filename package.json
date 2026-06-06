@@ -36,10 +36,12 @@
     "@typescript-eslint/parser": "^6.19.0",
     "concurrently": "^8.2.2",
     "eslint": "^8.56.0",
+    "naive-ui": "^2.44.1",
     "prettier": "^3.2.4",
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "@vicons/ionicons5": "^0.13.0",
     "chart.js": "^4.5.1"
   }
 }

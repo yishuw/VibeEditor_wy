@@ -1,49 +1,58 @@
 <template>
   <div class="right-toolbar">
     <div class="rt-top">
-      <div
+      <n-button
         v-for="item in items"
         :key="item.id"
+        quaternary
         class="rt-item"
         :class="{ active: activeId === item.id }"
         :title="item.label"
         @click="$emit('select', item.id)"
       >
-        <span class="rt-icon">{{ item.icon }}</span>
-      </div>
+        <template #icon>
+          <n-icon size="22" :component="item.icon" />
+        </template>
+      </n-button>
     </div>
     <div v-if="bottomItems.length > 0" class="rt-bottom">
-      <div
+      <n-button
         v-for="item in bottomItems"
         :key="item.id"
+        quaternary
         class="rt-item"
         :class="{ active: activeId === item.id }"
         :title="item.label"
         @click="$emit('select', item.id)"
       >
-        <span class="rt-icon">{{ item.icon }}</span>
-      </div>
+        <template #icon>
+          <n-icon size="22" :component="item.icon" />
+        </template>
+      </n-button>
     </div>
     <slot name="bottom" />
   </div>
 </template>
 
 <script setup lang="ts">
+import type { Component } from 'vue'
+import { NButton, NIcon } from 'naive-ui'
+
 export interface RightToolbarItem {
-  id: string;
-  label: string;
-  icon: string;
+  id: string
+  label: string
+  icon: Component
 }
 
 defineProps<{
-  items: RightToolbarItem[];
-  bottomItems: RightToolbarItem[];
-  activeId: string | null;
-}>();
+  items: RightToolbarItem[]
+  bottomItems: RightToolbarItem[]
+  activeId: string | null
+}>()
 
 defineEmits<{
-  select: [id: string];
-}>();
+  select: [id: string]
+}>()
 </script>
 
 <style scoped>
@@ -63,33 +72,16 @@ defineEmits<{
   flex-direction: column;
 }
 .rt-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 48px;
   height: 48px;
-  cursor: pointer;
   color: #858585;
-  transition: color 0.1s;
+  border-radius: 0;
 }
 .rt-item:hover {
   color: var(--text-primary);
 }
 .rt-item.active {
   color: var(--text-primary);
-}
-.rt-item.active::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--text-primary);
-}
-.rt-icon {
-  font-size: 22px;
-  line-height: 1;
+  border-right: 2px solid var(--text-primary);
 }
 </style>

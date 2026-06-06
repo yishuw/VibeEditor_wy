@@ -3,11 +3,31 @@
   遵循 VS Code 暗色主题风格
 -->
 <template>
-  <MainLayout />
+  <n-config-provider :theme="naiveTheme" :theme-overrides="themeOverrides">
+    <n-message-provider>
+      <n-dialog-provider>
+        <n-notification-provider>
+          <n-modal-provider>
+            <MainLayout />
+          </n-modal-provider>
+        </n-notification-provider>
+      </n-dialog-provider>
+    </n-message-provider>
+  </n-config-provider>
 </template>
 
 <script setup lang="ts">
-import MainLayout from './components/layout/MainLayout.vue';
+import {
+  NConfigProvider,
+  NMessageProvider,
+  NDialogProvider,
+  NNotificationProvider,
+  NModalProvider,
+} from 'naive-ui'
+import { useNaiveTheme } from './composables/useNaiveTheme'
+import MainLayout from './components/layout/MainLayout.vue'
+
+const { naiveTheme, themeOverrides } = useNaiveTheme()
 </script>
 
 <style>

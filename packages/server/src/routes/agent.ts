@@ -72,6 +72,13 @@ export function createAgentRouter(configDir: string, workspaceManager: Workspace
       }
 
       const runtime = getRuntime(req.body);
+
+      // Refresh MCP config for cached workspace runtimes
+      if (req.body.workspaceId) {
+        const latestMcpServers = loadEnabledMcpServers(configDir);
+        await runtime.reinitialize(latestMcpServers.length > 0 ? latestMcpServers : undefined);
+      }
+
       const result = await runtime.chat(message, context as AgentContext, sessionId || 'default');
 
       res.json({
@@ -110,6 +117,13 @@ export function createAgentRouter(configDir: string, workspaceManager: Workspace
 
     const runtime = getRuntime(req.body, workspaceRoot);
     const startMs = Date.now();
+
+    // Refresh MCP config from disk for cached workspace runtimes.
+    // The runtime may have been created before the user added/enabled MCP servers.
+    if (body.workspaceId) {
+      const latestMcpServers = loadEnabledMcpServers(configDir);
+      await runtime.reinitialize(latestMcpServers.length > 0 ? latestMcpServers : undefined);
+    }
 
     // SSE keep-alive heartbeat to prevent proxy timeouts during long tool executions
     const keepAlive = setInterval(() => { res.write(': heartbeat\n\n'); }, 15000);

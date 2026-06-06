@@ -255,6 +255,8 @@ import StatusBar from '../StatusBar.vue';
 import AboutDialog from './AboutDialog.vue';
 import OpenFolderDialog from '../dialogs/OpenFolderDialog.vue';
 import OpenFileDialog from '../dialogs/OpenFileDialog.vue';
+import { DocumentOutline, SearchOutline } from '@vicons/ionicons5'
+import { ChatbubblesOutline, HardwareChipOutline } from '@vicons/ionicons5'
 
 const store = useEditorStore();
 const fs = reactive(useFileSystem());
@@ -280,15 +282,15 @@ const { startResize, isResizing: isWindowResizing } = useWindowResize();
 
 // ===== 活动栏配置 =====
 const topActivityItems = computed<ActivityItem[]>(() => [
-  { id: 'explorer', label: t('activityBar.explorer'), icon: '🗋' },
-  { id: 'search', label: t('activityBar.search'), icon: '🔍' },
+  { id: 'explorer', label: t('activityBar.explorer'), icon: DocumentOutline },
+  { id: 'search', label: t('activityBar.search'), icon: SearchOutline },
 ]);
 
 const bottomActivityItems = computed<ActivityItem[]>(() => []);
 
 const rightToolbarItems = computed<RightToolbarItem[]>(() => [
-  { id: 'agent', label: t('rightToolbar.agent'), icon: '🤖' },
-  { id: 'mcp', label: t('rightToolbar.mcp'), icon: '🔌' },
+  { id: 'agent', label: t('rightToolbar.agent'), icon: ChatbubblesOutline },
+  { id: 'mcp', label: t('rightToolbar.mcp'), icon: HardwareChipOutline },
 ]);
 
 function onRightToolbarSelect(id: string) {

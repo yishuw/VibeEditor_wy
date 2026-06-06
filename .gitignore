@@ -33,4 +33,5 @@ packages/server/config/
 # Agent instructions (generated, not committed)
 AGENTS.md
 CLAUDE.md
+.opencode/
 .claude/
