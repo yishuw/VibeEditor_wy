@@ -11,8 +11,7 @@
       :env="fs.env"
       :workspace-mode="store.workspaceMode"
       @open-folder="handleOpenFolder"
-      @connect-server="handleConnectServer"
-      @open-local-file="fs.openLocalFile"
+      @open-file="handleOpenFile"
       @save="fs.saveCurrentFile"
       @new-file="store.newUntitled"
       @new-folder="fs.createFolder"
@@ -148,18 +147,11 @@
               <p class="placeholder-title">{{ $t('placeholder.title') }}</p>
               <p class="placeholder-hint">{{ $t('placeholder.hint') }}</p>
               <div v-if="store.fileTreeNodes.length === 0" class="placeholder-actions">
-                <button class="placeholder-btn" @click="fs.openFolderDialog">{{ $t('placeholder.openFolder') }}</button>
+                <button class="placeholder-btn" @click="handleOpenFolder">{{ $t('placeholder.openFolder') }}</button>
                 <button
-                  v-if="fs.env === 'browser' || fs.env === 'server'"
+                  v-if="fs.env !== 'electron'"
                   class="placeholder-btn"
-                  @click="fs.connectToServer"
-                >
-                  {{ $t('placeholder.browseServer') }}
-                </button>
-                <button
-                  v-if="fs.env === 'browser'"
-                  class="placeholder-btn"
-                  @click="fs.openLocalFile"
+                  @click="handleOpenFile"
                 >
                   {{ $t('placeholder.openFile') }}
                 </button>
@@ -193,6 +185,16 @@
       @cancel="onSaveDialogCancel"
     />
     <AboutDialog :visible="showAboutDialog" @close="showAboutDialog = false" />
+    <OpenFolderDialog
+      v-if="showOpenFolderDialog"
+      @confirm="onOpenFolderConfirm"
+      @cancel="showOpenFolderDialog = false"
+    />
+    <OpenFileDialog
+      v-if="showOpenFileDialog"
+      @confirm="onOpenFileConfirm"
+      @cancel="showOpenFileDialog = false"
+    />
     <div v-if="isDraggingFolder" class="drop-overlay">
       <div class="drop-message">
         <span class="drop-title">{{ $t('dragOverlay.title') }}</span>
@@ -218,7 +220,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed, onMounted, nextTick } from 'vue';
+import { ref, reactive, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
@@ -228,6 +230,7 @@ import { useWindowResize } from '../../composables/useWindowResize';
 import type { ResizeEdge } from '../../composables/useWindowResize';
 import { useFileTreeContextMenu } from '../../composables/useFileTreeContextMenu';
 import Toolbar from '../toolbar/Toolbar.vue';
+import { webFileLog } from '../../services/logger';
 import ActivityBar from './ActivityBar.vue';
 import type { ActivityItem } from './ActivityBar.vue';
 import SideBar from './SideBar.vue';
@@ -250,6 +253,8 @@ import SettingDropdown from '../settings/SettingDropdown.vue';
 import SaveDialog from '../SaveDialog.vue';
 import StatusBar from '../StatusBar.vue';
 import AboutDialog from './AboutDialog.vue';
+import OpenFolderDialog from '../dialogs/OpenFolderDialog.vue';
+import OpenFileDialog from '../dialogs/OpenFileDialog.vue';
 
 const store = useEditorStore();
 const fs = reactive(useFileSystem());
@@ -377,6 +382,12 @@ const saveDialogDefaultName = ref('');
 const showAboutDialog = ref(false);
 let saveDialogResolver: ((value: string | null) => void) | null = null;
 
+// ===== 打开文件/文件夹对话框状态 =====
+const showOpenFolderDialog = ref(false);
+const showOpenFileDialog = ref(false);
+let openFolderResolver: ((value: string | null) => void) | null = null;
+let openFileResolver: ((value: string | null) => void) | null = null;
+
 // ===== Agent 编辑快照（用于撤销） =====
 const editSnapshots = ref<Map<string, string>>(new Map());
 const lastEditedFiles = ref<string[]>([]);
@@ -396,7 +407,7 @@ async function undoLastEdits() {
           store.saveTab(tab.id);
         }
       } catch (e: any) {
-        console.error('Failed to undo edit for', filePath, e);
+        webFileLog.error(`Failed to undo edit for ${filePath}: ${(e as Error).message}`);
       }
     }
   }
@@ -436,6 +447,33 @@ function onSaveDialogCancel() {
   showSaveDialog.value = false;
   saveDialogResolver?.(null);
   saveDialogResolver = null;
+}
+
+function handleOpenFolderDialog(): Promise<string | null> {
+  return new Promise((resolve) => {
+    openFolderResolver = resolve;
+    showOpenFolderDialog.value = true;
+  });
+}
+
+function handleOpenFileDialog(): Promise<string | null> {
+  return new Promise((resolve) => {
+    openFileResolver = resolve;
+    showOpenFileDialog.value = true;
+  });
+}
+
+function onOpenFolderConfirm(rootPath: string) {
+  showOpenFolderDialog.value = false;
+  clearDirState();
+  openFolderResolver?.(rootPath);
+  openFolderResolver = null;
+}
+
+function onOpenFileConfirm(filePath: string) {
+  showOpenFileDialog.value = false;
+  openFileResolver?.(filePath);
+  openFileResolver = null;
 }
 
 /** 处理工具栏编辑操作（撤销/重做/查找/替换/剪切/复制/粘贴） */
@@ -494,6 +532,8 @@ function handleEditAction(action: string) {
 // 注册回调到 useFileSystem
 fs.setSaveAsHandler(handleSaveFileAs);
 fs.setOnAfterSave(handleAfterSave);
+fs.setOpenFolderDialogHandler(handleOpenFolderDialog);
+fs.setOpenFileDialogHandler(handleOpenFileDialog);
 
 // 文件树节点数量变化时更新侧边栏计数
 watch(() => store.fileTreeNodes.length, (count) => {
@@ -503,6 +543,17 @@ watch(() => store.fileTreeNodes.length, (count) => {
     ];
   }
 });
+
+// 标签页变化时自动持久化到 .vibeeditor/workspace.json
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => [store.tabs.map(t => ({ path: t.path, isUntitled: t.isUntitled })), store.activeTabId],
+  () => {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => fs.persistWorkspaceState(), 300);
+  },
+  { deep: true }
+);
 
 /**
  * 文件保存后的回调：刷新所有已展开目录的内容
@@ -514,10 +565,8 @@ async function handleAfterSave(_savePath: string) {
   const results = await Promise.all(
     dirsToReload.map(async (dir) => {
       try {
-        const entries = await fs.readDirForPath(dir);
-        const displayRoot = dir.startsWith('__root__') ? dir.slice(8) : dir;
-        const resolved = entries.map((e: any) => ({ ...e, path: displayRoot.replace(/\/$/, '') + '/' + e.path }));
-        return { dir, entries: resolved };
+        const entries = await fs.client.readDir(dir);
+        return { dir, entries };
       } catch {
         return { dir, entries: null };
       }
@@ -555,9 +604,9 @@ async function handleOpenFolder() {
 }
 
 /** 连接到服务端并重置文件树状态 */
-async function handleConnectServer() {
+async function handleOpenFile() {
   clearDirState();
-  await fs.connectToServer();
+  await fs.openFileDialog();
 }
 
 function isFileDrag(dataTransfer: DataTransfer | null): boolean {
@@ -598,7 +647,13 @@ async function handleDrop(e: DragEvent) {
   resetDragState();
 
   const opened = await fs.openDroppedFolder(dataTransfer);
-  if (!opened) return;
+  if (!opened) {
+    if (fs.error) {
+      // 用临时通知展示错误（如 Server 模式不支持拖放）
+      alert(fs.error);
+    }
+    return;
+  }
 
   activeActivity.value = 'explorer';
   activeActivityTitle.value = t('sidebar.explorer');
@@ -625,11 +680,8 @@ async function handleExpandDir(dirPath: string) {
 
   loadingDirs.value = new Set([...loadingDirs.value, dirPath]);
   try {
-    const entries = await fs.readDirForPath(dirPath);
-    // 多工作区：子条目路径拼接完整前缀（去除 __root__ 后拼接），保证 resolveClient 能匹配
-    const displayRoot = dirPath.startsWith('__root__') ? dirPath.slice(8) : dirPath;
-    const resolved = entries.map((e: any) => ({ ...e, path: displayRoot.replace(/\/$/, '') + '/' + e.path }));
-    dirChildren.value = { ...dirChildren.value, [dirPath]: resolved };
+    const entries = await fs.client.readDir(dirPath);
+    dirChildren.value = { ...dirChildren.value, [dirPath]: entries };
   } catch { /* 忽略读取失败 */ }
   loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
 }
@@ -652,11 +704,8 @@ onMounted(async () => {
         case 'open-folder':
           handleOpenFolder();
           break;
-        case 'connect-server':
-          handleConnectServer();
-          break;
-        case 'open-local-file':
-          fs.openLocalFile();
+        case 'open-file':
+          handleOpenFile();
           break;
         case 'save':
           fs.saveCurrentFile();
@@ -771,18 +820,10 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 
       await fs.client.writeFile(resolvedPath, edit.content);
 
-      // 更新已打开的标签页：精确匹配 + 后缀模糊匹配
-      let tab = store.tabs.find(t => t.path === resolvedPath);
-      if (!tab) tab = store.tabs.find(t => t.path.endsWith('/' + edit.path) || t.path.endsWith('\\' + edit.path));
-      if (!tab && resolvedPath === edit.path) tab = store.tabs.find(t => t.path.endsWith(edit.path));
-      if (tab) {
-        store.updateContent(tab.id, edit.content);
-        store.saveTab(tab.id);
-      } else {
-        // 文件未打开，自动打开并标记为已保存
-        store.openFile(resolvedPath, edit.content);
-        store.saveTab(store.activeTabId!);
-      }
+      // openFile 内部使用 pathsMatch 处理相对/绝对路径混用，不会创建重复标签
+      store.openFile(resolvedPath, edit.content);
+      store.updateContent(store.activeTabId!, edit.content);
+      store.saveTab(store.activeTabId!);
 
       // 刷新文件树以反映变化
       if (store.fileTreeNodes.length > 0) {
@@ -792,6 +833,9 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
       fs.error = `Edit failed: ${edit.path} - ${e.message}`;
     }
   }
+
+  // 持久化标签页状态（Agent 编辑可能打开或更新了标签页）
+  fs.persistWorkspaceState();
 }
 </script>
 

@@ -5,6 +5,13 @@ import { filesRouter } from './routes/files';
 import { createAgentRouter } from './routes/agent';
 import { createMcpRouter } from './routes/mcp';
 import { createConfigRouter } from './routes/config';
+import { createWorkspaceRouter } from './routes/workspace';
+import { createLLMRouter } from './routes/llm';
+import { WorkspaceManager } from './workspace/manager';
+import { LLMGateway, createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
+import { requestLoggerMiddleware } from './middleware/requestLogger';
+
+const log = createLogger(LOG_CATEGORY.HTTP);
 
 export interface ServerConfig {
   port?: number;
@@ -20,13 +27,19 @@ export function createApp(config: ServerConfig = {}) {
   const host = config.host ?? '0.0.0.0';
   const configDir = config.configDir || './config';
 
+  const workspaceManager = new WorkspaceManager(configDir);
+  const llmGateway = new LLMGateway(configDir);
+
   app.use(cors({ origin: config.corsOrigin ?? '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] }));
   app.use(express.json({ limit: '50mb' }));
+  app.use(requestLoggerMiddleware);
 
   app.use('/api/files', filesRouter);
-  app.use('/api/agent', createAgentRouter(configDir));
+  app.use('/api/agent', createAgentRouter(configDir, workspaceManager, llmGateway));
   app.use('/api/mcp', createMcpRouter(configDir));
   app.use('/api/config', createConfigRouter(configDir));
+  app.use('/api/workspace', createWorkspaceRouter(workspaceManager, llmGateway));
+  app.use('/api/llm', createLLMRouter(llmGateway));
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
@@ -48,12 +61,14 @@ export function startServer(config: ServerConfig = {}) {
 
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`Port ${port} is already in use. Try setting SERVER_PORT env or changing app-config.json.`);
+      log.error(`Port ${port} is already in use`, { port, host, hint: 'Try setting SERVER_PORT env or changing app-config.json.' });
+    } else {
+      log.error(`Server error: ${err.message}`, { port, host, code: err.code });
     }
   });
 
   server.listen(port, host, () => {
-    console.log(`VibeEditor server running at http://${host}:${port}`);
+    log.info(`VibeEditor server running at http://${host}:${port}`, { port, host, configDir: config.configDir });
   });
 
   return server;

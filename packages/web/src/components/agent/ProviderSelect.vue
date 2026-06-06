@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ProviderConfig } from '../../composables/useProviderSettings';
+import type { ProviderConfig } from '../../composables/useLLMSettings';
 
 const { t } = useI18n();
 

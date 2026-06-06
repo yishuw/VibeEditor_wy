@@ -5,6 +5,9 @@ import type { ListToolsResult } from '@modelcontextprotocol/sdk/types';
 import { buildXMLUsage, formatMCPResult } from './utils';
 import { MCPClient } from './client';
 import { MCPToolAdapter } from './adapter';
+import { createLogger } from '../logger';
+
+const log = createLogger('McpManager');
 
 type MCPToolDefinition = ListToolsResult['tools'][number];
 
@@ -72,9 +75,9 @@ export class McpManager {
         const client = new MCPClient(transport, { name: clientName, version: clientVersion });
         await client.initialize();
         this.servers.push({ id, config: serverConfig, client });
-        console.log(`[McpManager] Connected to "${id}" (${serverConfig.type})`);
+        log.info(`Connected to "${id}" (${serverConfig.type})`);
       } catch (e: any) {
-        console.error(`[McpManager] Failed to connect "${id}": ${e.message}`);
+        log.error(`Failed to connect "${id}": ${e.message}`);
       }
     }
 
@@ -87,8 +90,12 @@ export class McpManager {
   async disconnectAll(): Promise<void> {
     for (const server of this.servers) {
       try {
+        log.info(`Disconnecting "${server.id}"...`);
         await server.client.dispose();
-      } catch { /* 忽略断开连接时的错误 */ }
+        log.info(`Disconnected "${server.id}"`);
+      } catch (e: any) {
+        log.warn(`Error disconnecting "${server.id}": ${e.message}`);
+      }
     }
     this.servers = [];
     this.tools = [];
@@ -126,8 +133,9 @@ export class McpManager {
           this.tools.push(info);
           this.toolMap.set(def.name, server);
         }
+        log.info(`"${server.id}": ${defs.length} tool(s) discovered`);
       } catch (e: any) {
-        console.error(`[McpManager] Failed to list tools from "${server.id}": ${e.message}`);
+        log.error(`Failed to list tools from "${server.id}": ${e.message}`);
       }
     }
 
@@ -147,6 +155,7 @@ export class McpManager {
         let toolName = originalName;
         if (RESERVED_TOOL_NAMES.has(toolName) || seenNames.has(toolName)) {
           toolName = `mcp_${server.id}_${originalName}`;
+          log.info(`Renamed tool "${originalName}" → "${toolName}" (name conflict)`);
         }
         seenNames.add(toolName);
 
@@ -160,6 +169,7 @@ export class McpManager {
       }
     }
 
+    log.info(`Created ${adapters.length} tool adapter(s)`);
     return adapters;
   }
 
@@ -178,10 +188,16 @@ export class McpManager {
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
     const server = this.toolMap.get(name);
     if (!server) {
+      log.warn(`callTool: "${name}" not found in tool map`);
       throw new Error(`Tool not found: ${name}`);
     }
 
+    log.debug(`callTool: "${name}" → server "${server.id}"`);
     const result = await server.client.callTool(name, args);
+    const isError = !!(result as any).isError;
+    if (isError) {
+      log.warn(`callTool: "${name}" returned isError=true`);
+    }
     return formatMCPResult(name, result);
   }
 

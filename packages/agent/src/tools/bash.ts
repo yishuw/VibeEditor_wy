@@ -1,5 +1,9 @@
 import { exec } from 'child_process';
 import type { ITool, ToolInputSchema, ToolExecutionContext, ToolAnnotations } from '../types/tool';
+import { createLogger } from '../logger';
+import { LOG_CATEGORY } from '../log-categories';
+
+const log = createLogger(LOG_CATEGORY.FILE_OPS);
 
 const DEFAULT_TIMEOUT_MS = 120_000;   // 2 minutes
 const MAX_TIMEOUT_MS = 600_000;       // 10 minutes
@@ -35,29 +39,31 @@ export class BashTool implements ITool {
 
     const timeout = this.resolveTimeout(params.timeout);
     const description = params.description || '';
+    const startMs = Date.now();
+    const cmdPreview = command.length > 100 ? command.slice(0, 100) + '...' : command;
 
     return new Promise<string>(resolve => {
       const child = exec(command, {
-        cwd: undefined,  // uses process.cwd()
+        cwd: context.workspaceRoot,
         timeout,
         maxBuffer: 10 * 1024 * 1024,  // 10 MB stdout+stderr
         windowsHide: true,
         shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/bash',
       }, (error, stdout, stderr) => {
+        const elapsed = Date.now() - startMs;
         if (child.killed) {
+          log.warn(`bash timed out after ${elapsed}ms`, { command: cmdPreview, timeout });
           resolve(this.formatResult(command, description, '', 'Command timed out after timeout', true));
           return;
         }
 
-        if (error && error.code === null && error.signal === null) {
-          resolve(this.formatResult(command, description, stdout, stderr));
-          return;
-        }
-
+        const exitCode = error?.code ?? 0;
+        log.info(`bash done: exit=${exitCode}, stdout=${stdout.length} chars, stderr=${stderr.length} chars, ${elapsed}ms`, { command: cmdPreview, exitCode, stdoutLen: stdout.length, stderrLen: stderr.length });
         resolve(this.formatResult(command, description, stdout, stderr));
       });
 
       child.on('error', err => {
+        log.warn(`bash error: ${err.message}`, { command: cmdPreview });
         resolve(`## Bash Error\nCommand: \`${command}\`\n\n${err.message}`);
       });
     });

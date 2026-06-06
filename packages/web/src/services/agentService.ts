@@ -1,4 +1,5 @@
 import { i18n } from '../locales';
+import { webAgentLog } from './logger';
 
 declare const __SERVER_PORT__: number;
 
@@ -10,9 +11,9 @@ const DEFAULT_BASE_URL: string = typeof __SERVER_PORT__ !== 'undefined'
 /** Agent 运行配置 */
 export interface AgentConfig {
   mode: 'build' | 'plan';
+  providerId?: string;
   model?: string;
   apiUrl?: string;
-  apiKey?: string;
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
@@ -53,11 +54,15 @@ export function createAgentService(baseUrl = DEFAULT_BASE_URL) {
       context: Record<string, unknown>,
       config: AgentConfig,
       onChunk: (type: 'thinking' | 'content', text: string) => void,
-      onEvent?: (event: StreamEvent) => void
+      onEvent?: (event: StreamEvent) => void,
+      options?: { signal?: AbortSignal }
     ): Promise<AgentMessage> {
       const body: Record<string, unknown> = { message, context, config };
       if (context.workspaceRoot) {
         body.workspaceRoot = context.workspaceRoot;
+      }
+      if (context.workspaceId) {
+        body.workspaceId = context.workspaceId;
       }
       if (context.sessionId) {
         body.sessionId = context.sessionId;
@@ -66,11 +71,14 @@ export function createAgentService(baseUrl = DEFAULT_BASE_URL) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: options?.signal,
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`${i18n.global.t('errors.apiError')} ${res.status}: ${errText}`);
+        const msg = `${i18n.global.t('errors.apiError')} ${res.status}: ${errText}`;
+        webAgentLog.error(`streamMessage fetch error: ${msg}`);
+        throw new Error(msg);
       }
 
       const reader = res.body?.getReader();

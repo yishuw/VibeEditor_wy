@@ -29,9 +29,38 @@ export interface WorkspaceRoot {
   path: string;
   name: string;
   mode: WorkspaceMode;
+  workspaceId?: string;
 }
 
 let tabCounter = 0;
+
+/** 归一化路径：统一斜杠方向，去除 ./ 前缀 */
+function norm(p: string): string {
+  return p.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+/** 判断两个路径是否指向同一文件（处理相对/绝对路径混用） */
+function pathsMatch(a: string, b: string, workspaceRoot: string): boolean {
+  const na = norm(a);
+  const nb = norm(b);
+  if (na === nb) return true;
+  const nr = norm(workspaceRoot).replace(/\/$/, '');
+  if (!nr) return false;
+  // 一方是相对路径，另一方是 workspaceRoot 下的绝对路径
+  if (!na.includes(':') && nr + '/' + na === nb) return true;
+  if (!nb.includes(':') && nr + '/' + nb === na) return true;
+  // 后缀匹配：处理 LLM 输出带 / 前缀等边界情况，仅在前缀为纯分隔符时生效
+  // 防止 src/hello.rs 误匹配 hello.rs
+  if (na.endsWith('/' + nb)) {
+    const prefix = na.slice(0, na.length - ('/' + nb).length);
+    if (/^[\/\\]*$/.test(prefix)) return true;
+  }
+  if (nb.endsWith('/' + na)) {
+    const prefix = nb.slice(0, nb.length - ('/' + na).length);
+    if (/^[\/\\]*$/.test(prefix)) return true;
+  }
+  return false;
+}
 
 /** 根据文件扩展名映射到 Monaco Editor 语言标识符 */
 function getLanguageFromPath(filePath: string): string {
@@ -72,6 +101,7 @@ export const useEditorStore = defineStore('editor', () => {
   const fileTreeNodes = ref<any[]>([]);
   const workspaceRoots = ref<WorkspaceRoot[]>([]);
   const workspaceMode = ref<WorkspaceMode>('server');
+  const activeWorkspaceId = ref<string | null>(null);
 
   /** 当前活动标签页（计算属性） */
   const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value) ?? null);
@@ -91,7 +121,7 @@ export const useEditorStore = defineStore('editor', () => {
 
   /** 打开文件 —— 若已存在同路径标签则激活，否则新建标签 */
   const openFile = (filePath: string, content: string) => {
-    const existing = tabs.value.find(t => t.path === filePath);
+    const existing = tabs.value.find(t => pathsMatch(t.path, filePath, workspaceRoot.value));
     if (existing) {
       activeTabId.value = existing.id;
       return;
@@ -177,9 +207,18 @@ export const useEditorStore = defineStore('editor', () => {
     }
   };
 
+  /** 按路径激活标签页 */
+  const setActiveTabByName = (filePath: string) => {
+    const tab = tabs.value.find(t => t.path === filePath);
+    if (tab) {
+      activeTabId.value = tab.id;
+    }
+  };
+
   return {
     tabs, activeTabId, activeTab, fileTreeNodes, workspaceRoot, workspaceRoots, workspaceMode,
+    activeWorkspaceId,
     addWorkspaceRoot,
-    openFile, newUntitled, closeTab, updateContent, saveTab, setActiveTab, setTabPath,
+    openFile, newUntitled, closeTab, updateContent, saveTab, setActiveTab, setTabPath, setActiveTabByName,
   };
 });

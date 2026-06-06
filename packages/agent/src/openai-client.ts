@@ -1,6 +1,10 @@
 import OpenAI from 'openai';
 import type { ILLMProvider } from './types/provider';
 import type { AgentConfig, AgentContext } from './types/agent';
+import { createLogger } from './logger';
+import { LOG_CATEGORY } from './log-categories';
+
+const log = createLogger(LOG_CATEGORY.LLM);
 
 interface ResolvedLLMConfig {
   apiUrl: string;
@@ -85,39 +89,76 @@ export function createOpenAILLMProvider(config?: Partial<AgentConfig>): ILLMProv
     apiKey: resolved.apiKey,
   });
 
+  const msgCount = (msgs: { role: string; content: string }[]): number => msgs.length;
+  const totalChars = (msgs: { role: string; content: string }[]): number =>
+    msgs.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+
   return {
     async chat(messages) {
-      const response = await client.chat.completions.create({
+      const startMs = Date.now();
+      log.info(`chat start: model=${resolved.model}, messages=${msgCount(messages)}, inputChars=${totalChars(messages)}`, {
         model: resolved.model,
-        messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-        temperature: resolved.temperature,
-        max_tokens: resolved.maxTokens,
-        stream: false,
+        messages: msgCount(messages),
+        inputChars: totalChars(messages),
       });
-      return (response.choices[0]?.message?.content as string) || '';
+      try {
+        const response = await client.chat.completions.create({
+          model: resolved.model,
+          messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+          temperature: resolved.temperature,
+          max_tokens: resolved.maxTokens,
+          stream: false,
+        });
+        const content = (response.choices[0]?.message?.content as string) || '';
+        const usage = response.usage;
+        log.info(`chat done: ${content.length} chars, ${Date.now() - startMs}ms`, {
+          model: resolved.model,
+          contentLen: content.length,
+          usage: usage ? { prompt: usage.prompt_tokens, completion: usage.completion_tokens, total: usage.total_tokens } : undefined,
+        });
+        return content;
+      } catch (e: any) {
+        log.error(`chat failed: ${e.message}`, { model: resolved.model, error: e.message, status: e.status });
+        throw e;
+      }
     },
 
     async chatStream(messages, onChunk) {
-      const stream = await client.chat.completions.create({
+      const startMs = Date.now();
+      log.info(`chatStream start: model=${resolved.model}, messages=${msgCount(messages)}, inputChars=${totalChars(messages)}`, {
         model: resolved.model,
-        messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-        temperature: resolved.temperature,
-        max_tokens: resolved.maxTokens,
-        stream: true,
+        messages: msgCount(messages),
+        inputChars: totalChars(messages),
       });
+      try {
+        const stream = await client.chat.completions.create({
+          model: resolved.model,
+          messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+          temperature: resolved.temperature,
+          max_tokens: resolved.maxTokens,
+          stream: true,
+        });
 
-      let fullContent = '';
-      for await (const chunk of stream) {
-        const delta = (chunk.choices[0]?.delta as Record<string, unknown>) ?? {};
-        if (delta.reasoning_content) {
-          onChunk('thinking', String(delta.reasoning_content));
+        let fullContent = '';
+        for await (const chunk of stream) {
+          const delta = (chunk.choices[0]?.delta as Record<string, unknown>) ?? {};
+          if (delta.reasoning_content) {
+            onChunk('thinking', String(delta.reasoning_content));
+          }
+          if (delta.content) {
+            fullContent += String(delta.content);
+            onChunk('content', String(delta.content));
+          }
         }
-        if (delta.content) {
-          fullContent += String(delta.content);
-          onChunk('content', String(delta.content));
-        }
+        log.info(`chatStream done: ${fullContent.length} chars, ${Date.now() - startMs}ms`, {
+          model: resolved.model,
+          contentLen: fullContent.length,
+        });
+        return fullContent;
+      } catch (e: any) {
+        log.error(`chatStream failed: ${e.message}`, { model: resolved.model, error: e.message, status: e.status });
+        throw e;
       }
-      return fullContent;
     },
   };
 }

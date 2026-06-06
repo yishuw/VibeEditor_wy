@@ -1,7 +1,7 @@
 <template>
   <div class="agent-panel">
-    <!-- 会话标签栏 -->
-    <div class="session-tabs-bar">
+    <!-- 会话标签栏：仅在有工作区或有提供商时显示 -->
+    <div v-if="editorStore.activeWorkspaceId || providerSettings.providers.value.length > 0" class="session-tabs-bar">
       <button class="session-new-btn" @click="createNewSession" :title="$t('agent.newSession')">+</button>
       <div class="session-tabs-scroll" ref="tabsScrollRef" @wheel="onTabsWheel" @scroll="updateScrollState">
         <div
@@ -45,6 +45,13 @@
       <button class="guide-cta" @click="showSettings = true">{{ $t('agent.addProvider') }}</button>
     </div>
 
+    <!-- 无工作区时的提示（仅 server 模式） -->
+    <div v-else-if="!editorStore.activeWorkspaceId" class="agent-guide">
+      <div class="guide-icon">📂</div>
+      <div class="guide-title">{{ $t('agent.noWorkspaceTitle') }}</div>
+      <div class="guide-desc">{{ $t('agent.noWorkspaceDesc') }}</div>
+    </div>
+
     <!-- 无活跃会话时的提示 -->
     <div v-else-if="!activeAgent" class="agent-guide">
       <div class="guide-icon">+</div>
@@ -75,6 +82,7 @@
               <div
                 v-for="block in msg.blocks"
                 :key="block.id"
+                v-memo="[Math.floor(block.content.length / 200), block.completed]"
                 class="tl-node"
                 :class="{
                   'tl-thinking': block.type === 'thinking',
@@ -118,7 +126,7 @@
                 <template v-else-if="block.type === 'response'">
                   <div class="tl-dot tl-dot-response"></div>
                   <div class="tl-body">
-                    <div class="tl-content" v-html="renderMarkdown(cleanBlockContent(block.content))"></div>
+                    <div class="tl-content" v-html="renderMarkdown(block.content)"></div>
                   </div>
                 </template>
               </div>
@@ -141,7 +149,7 @@
               <div v-if="msg.content" class="tl-node tl-response">
                 <div class="tl-dot tl-dot-response"></div>
                 <div class="tl-body">
-                  <div class="tl-content" v-html="renderMarkdown(cleanContent(msg))"></div>
+                  <div class="tl-content" v-html="renderMarkdown(msg.content)"></div>
                 </div>
               </div>
             </template>
@@ -185,7 +193,19 @@
           @keydown.ctrl.enter.prevent="send"
           @keydown.meta.enter.prevent="send"
         ></textarea>
-        <button class="agent-send-btn" @click="send" :disabled="!input.trim() || (activeAgent?.isProcessing.value ?? false)">
+        <button
+          v-if="activeAgent?.isProcessing.value"
+          class="agent-stop-btn"
+          @click="stopStream"
+        >
+          {{ $t('agent.stop') }}
+        </button>
+        <button
+          v-else
+          class="agent-send-btn"
+          @click="send"
+          :disabled="!input.trim()"
+        >
           {{ $t('agent.send') }}
         </button>
       </div>
@@ -212,7 +232,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { useSessionStore } from '../../stores/sessions';
-import { useProviderSettings } from '../../composables/useProviderSettings';
+import { useLLMSettings } from '../../composables/useLLMSettings';
 import { useEditorStore } from '../../stores/editor';
 import { renderMarkdown } from '../../services/markdown';
 import type { ChatMessage } from '../../composables/useAgent';
@@ -220,6 +240,7 @@ import type { ParsedEdit } from '../../services/editParser';
 import SettingsDialog from './SettingsDialog.vue';
 import ModeSelector from './ModeSelector.vue';
 import ProviderSelect from './ProviderSelect.vue';
+import { webAgentLog } from '../../services/logger';
 
 const props = defineProps<{}>();
 
@@ -229,7 +250,7 @@ const emit = defineEmits<{
 }>();
 
 const sessionStore = useSessionStore();
-const providerSettings = useProviderSettings();
+const providerSettings = useLLMSettings();
 const editorStore = useEditorStore();
 const input = ref('');
 const messagesContainer = ref<HTMLElement>();
@@ -294,19 +315,6 @@ function toggleBlock(blockId: string) {
   expandedState[blockId] = !expandedState[blockId];
 }
 
-/** 清理消息内容，移除工具结果标记 */
-function cleanContent(msg: ChatMessage): string {
-  let text = msg.content;
-  text = text.replace(/\n?\*\*\[Tool:[^\]]+\]\*\*\n[\s\S]*?(?=\n?\*\*\[Tool:|$)/g, '');
-  text = text.replace(/<(\w+)[^>]*\/>/g, '');
-  return text.trim();
-}
-
-/** 清理单个块的内容，移除工具 XML 标签 */
-function cleanBlockContent(content: string): string {
-  return content.replace(/<(\w+)[^>]*\/>/g, '').trim();
-}
-
 // ===== 自动滚动控制 =====
 const userScrolledUp = ref(false);
 let scrollRafId = 0;
@@ -368,6 +376,7 @@ async function send() {
 
   const activeFilePath = editorStore.activeTab?.path;
 
+  webAgentLog.info('send: starting streamMessage');
   const streamPromise = agent.streamMessage(
     text,
     providerSettings.activeProvider.value,
@@ -378,7 +387,12 @@ async function send() {
   await nextTick();
   scrollToBottom();
 
-  await streamPromise;
+  try {
+    await streamPromise;
+    webAgentLog.info('send: streamMessage completed');
+  } catch (e: any) {
+    webAgentLog.error(`send: streamMessage failed: ${e.message}`, { name: e.name, message: e.message });
+  }
 
   sessionStore.saveCurrentSession();
 
@@ -388,6 +402,13 @@ async function send() {
   }
 
   scheduleScroll(true);
+}
+
+function stopStream() {
+  const agent = activeAgent.value;
+  if (agent?.cancelStream) {
+    agent.cancelStream();
+  }
 }
 
 function startInputResize(e: MouseEvent) {
@@ -419,6 +440,7 @@ function startInputResize(e: MouseEvent) {
 }
 
 onMounted(() => {
+  providerSettings.reload();
   messagesContainer.value?.addEventListener('scroll', onMessagesScroll);
   setupObserver();
 
@@ -1031,6 +1053,24 @@ onUnmounted(() => {
 .agent-send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.agent-stop-btn {
+  background: #f44747;
+  border: none;
+  color: #fff;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  align-self: flex-end;
+  animation: stop-pulse 1.5s ease-in-out infinite;
+}
+.agent-stop-btn:hover {
+  background: #d63030;
+}
+@keyframes stop-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 /* ---- 无提供商引导页 ---- */

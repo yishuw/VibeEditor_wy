@@ -116,14 +116,14 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useProviderSettings, fetchAvailableModels, PROVIDER_PRESETS, type ProviderConfig, type ProviderPreset } from '../../composables/useProviderSettings';
+import { useLLMSettings, PROVIDER_PRESETS, type ProviderConfig, type ProviderPreset } from '../../composables/useLLMSettings';
 
 const { t } = useI18n();
 
 const props = defineProps<{ visible: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
-const settings = useProviderSettings();
+const settings = useLLMSettings();
 
 // ===== 状态 =====
 const editingId = ref<string | null>(null);
@@ -243,9 +243,20 @@ async function fetchModels() {
   fetchError.value = '';
 
   try {
-    const models = await fetchAvailableModels(form.apiUrl.trim(), form.apiKey.trim());
-    availableModels.value = models;
-    if (models.length === 0) {
+    const apiUrl = form.apiUrl.trim();
+    const apiKey = form.apiKey.trim();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const res = await fetch(`${apiUrl}/models`, { headers });
+    if (res.ok) {
+      const data = await res.json() as any;
+      const models = (data.data && Array.isArray(data.data))
+        ? data.data.map((m: any) => m.id || m.name).filter(Boolean)
+        : [];
+      availableModels.value = models;
+    }
+    if (availableModels.value.length === 0) {
       fetchError.value = t('settingsDialog.noModels');
     }
   } catch (e: any) {
@@ -256,7 +267,7 @@ async function fetchModels() {
 }
 
 /** 保存：先删除旧组全部条目，再按新模型列表重建 */
-function saveForm() {
+async function saveForm() {
   if (!form.name.trim() || !form.apiUrl.trim() || selectedModels.value.size === 0) return;
 
   const models = [...selectedModels.value];
@@ -266,16 +277,14 @@ function saveForm() {
     apiKey: form.apiKey.trim(),
   };
 
-  // 编辑模式：先移除该组所有旧条目
   if (editingGroupIds.value.length > 0) {
     for (const id of editingGroupIds.value) {
-      settings.removeProvider(id);
+      await settings.removeProvider(id);
     }
   }
 
-  // 每个选中的模型生成一个独立条目
   for (const model of models) {
-    settings.addProvider({ ...base, model });
+    await settings.addProvider({ ...base, model });
   }
 
   editing.value = false;
@@ -296,9 +305,9 @@ function cancelEdit() {
 }
 
 /** 删除整个分组 */
-function deleteGroup(group: ProviderGroup) {
+async function deleteGroup(group: ProviderGroup) {
   for (const id of group.ids) {
-    settings.removeProvider(id);
+    await settings.removeProvider(id);
   }
   if (editingId.value && group.ids.includes(editingId.value)) {
     cancelEdit();
@@ -310,10 +319,11 @@ function close() {
 }
 
 // 每次打开对话框时重置
-watch(() => props.visible, (v) => {
-  if (v) {
-    editing.value = false;
-    editingId.value = null;
+  watch(() => props.visible, (v) => {
+    if (v) {
+      settings.reload();
+      editing.value = false;
+      editingId.value = null;
     editingGroupIds.value = [];
     pickingPreset.value = false;
     showApiUrl.value = false;
