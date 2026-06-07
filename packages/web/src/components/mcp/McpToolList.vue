@@ -1,54 +1,45 @@
 <template>
   <div class="tool-list">
-    <div
-      v-for="tool in tools"
-      :key="tool.name"
-      class="tool-item"
-    >
-      <span class="tool-name">{{ tool.name }}</span>
-      <span class="tool-desc">{{ tool.description }}</span>
-    </div>
-    <div v-if="tools.length === 0" class="tool-empty">
-      No tools discovered
-    </div>
+    <n-list v-if="tools.length > 0" :show-divider="false" class="tool-list-inner">
+      <n-list-item v-for="tool in tools" :key="tool.name">
+        <div class="tool-item">
+          <n-text code class="tool-name">{{ tool.name }}</n-text>
+          <n-text depth="3" class="tool-desc">{{ tool.description }}</n-text>
+        </div>
+      </n-list-item>
+    </n-list>
+    <n-empty v-else description="No tools discovered" size="small" />
   </div>
 </template>
 
 <script setup lang="ts">
-import type { McpToolInfo } from '@vibeeditor/agent';
+import { NList, NListItem, NText, NEmpty } from 'naive-ui'
+import type { McpToolInfo } from '@vibeeditor/agent'
 
 defineProps<{
-  tools: McpToolInfo[];
-}>();
+  tools: McpToolInfo[]
+}>()
 </script>
 
 <style scoped>
 .tool-list {
-  padding: 6px 0 6px 12px;
-  border-top: 1px solid var(--border-color);
+  padding-top: 4px;
+}
+.tool-list-inner {
   max-height: 160px;
   overflow-y: auto;
 }
 .tool-item {
   display: flex;
   flex-direction: column;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 .tool-name {
-  font-family: 'Consolas', 'Courier New', monospace;
   font-size: 12px;
-  color: var(--accent-color);
 }
 .tool-desc {
   font-size: 11px;
-  color: var(--text-secondary);
   line-height: 1.4;
   margin-top: 1px;
-}
-.tool-empty {
-  font-size: 11px;
-  color: var(--text-secondary);
-  font-style: italic;
-  padding: 4px 0;
 }
 </style>

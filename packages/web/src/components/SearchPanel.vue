@@ -1,35 +1,39 @@
 <template>
   <div class="search-panel">
     <div class="search-input-group">
-      <input
+      <n-input
         ref="searchInput"
-        v-model="query"
-        type="text"
-        class="search-input"
+        v-model:value="query"
+        clearable
+        size="small"
         :placeholder="$t('searchPanel.placeholder')"
         @keyup.enter="doSearch"
-      />
-      <button class="search-btn" @click="doSearch" :disabled="!query.trim() || searching">
-        {{ searching ? '...' : '🔍' }}
-      </button>
+      >
+        <template #suffix>
+          <n-button text size="tiny" :disabled="!query.trim() || searching" @click="doSearch">
+            <template #icon><n-icon :component="searching ? SyncOutline : SearchOutline" /></template>
+          </n-button>
+        </template>
+      </n-input>
     </div>
 
     <div v-if="results.length > 0" class="search-summary">
-      {{ results.length }} {{ results.length === 1 ? $t('searchPanel.result') : $t('searchPanel.results') }} in {{ fileCount }} {{ fileCount === 1 ? $t('searchPanel.file') : $t('searchPanel.files') }}
+      {{ results.length }} {{ results.length === 1 ? $t('searchPanel.result') : $t('searchPanel.results') }}
+      {{ $t('searchPanel.file', { n: fileCount }) }}
     </div>
 
-    <div v-if="searching" class="search-status">{{ $t('searchPanel.searching') }}</div>
-    <div v-else-if="searched && results.length === 0" class="search-status">{{ $t('searchPanel.noResults') }}</div>
+    <n-spin v-if="searching" size="small" class="search-status" />
+    <n-empty v-else-if="searched && results.length === 0" :description="$t('searchPanel.noResults')" size="small" class="search-status" />
 
     <div class="search-results">
       <div v-for="(group, filePath) in groupedResults" :key="filePath" class="search-file-group">
         <div class="search-file-header" @click="$emit('open-file', filePath)">
-          <span class="search-file-icon">📄</span>
+          <n-icon size="14" :component="DocumentOutline" />
           <span class="search-file-name">{{ filePath }}</span>
           <span class="search-file-count">{{ (group as SearchResult[]).length }}</span>
         </div>
         <div
-          v-for="(r, idx) in (group as SearchResult[]).slice(0, 3)"
+          v-for="(r, idx) in ((group as SearchResult[]).slice(0, 3))"
           :key="idx"
           class="search-result-item"
           @click="$emit('open-file', filePath)"
@@ -50,113 +54,111 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue';
-import type { FileServiceClient } from '../services/fileService';
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { NInput, NButton, NIcon, NSpin, NEmpty } from 'naive-ui'
+import { SearchOutline, SyncOutline, DocumentOutline } from '@vicons/ionicons5'
+import type { FileServiceClient } from '../../services/fileService'
 
 interface SearchResult {
-  path: string;
-  line: number;
-  text: string;
+  path: string
+  line: number
+  text: string
 }
 
 const props = defineProps<{
-  client: FileServiceClient;
-}>();
+  client: FileServiceClient
+}>()
 
 defineEmits<{
-  'open-file': [path: string];
-}>();
+  'open-file': [path: string]
+}>()
 
-const query = ref('');
-const results = ref<SearchResult[]>([]);
-const searched = ref(false);
-const searching = ref(false);
-const fileCount = ref(0);
-const searchInput = ref<HTMLInputElement>();
+const query = ref('')
+const results = ref<SearchResult[]>([])
+const searched = ref(false)
+const searching = ref(false)
+const fileCount = ref(0)
+const searchInput = ref<{ focus: () => void }>()
 
 const groupedResults = computed(() => {
-  const groups: Record<string, SearchResult[]> = {};
+  const groups: Record<string, SearchResult[]> = {}
   for (const r of results.value) {
-    if (!groups[r.path]) groups[r.path] = [];
-    groups[r.path].push(r);
+    if (!groups[r.path]) groups[r.path] = []
+    groups[r.path].push(r)
   }
-  return groups;
-});
+  return groups
+})
 
 async function getAllFiles(dir: string): Promise<string[]> {
-  const files: string[] = [];
+  const files: string[] = []
   try {
-    const entries = await props.client.readDir(dir);
+    const entries = await props.client.readDir(dir)
     for (const entry of entries) {
       if (entry.isDirectory) {
-        const subFiles = await getAllFiles(entry.path);
-        files.push(...subFiles);
+        const subFiles = await getAllFiles(entry.path)
+        files.push(...subFiles)
       } else {
-        files.push(entry.path);
+        files.push(entry.path)
       }
     }
   } catch { /* ignore */ }
-  return files;
+  return files
 }
 
 async function doSearch() {
-  const q = query.value.trim();
-  if (!q) return;
+  const q = query.value.trim()
+  if (!q) return
 
-  searching.value = true;
-  searched.value = true;
-  results.value = [];
-  fileCount.value = 0;
+  searching.value = true
+  searched.value = true
+  results.value = []
+  fileCount.value = 0
 
   try {
-    const allFiles = await getAllFiles('.');
-    const qLower = q.toLowerCase();
-    const found: SearchResult[] = [];
-    let scannedFiles = 0;
+    const allFiles = await getAllFiles('.')
+    const qLower = q.toLowerCase()
+    const found: SearchResult[] = []
+    let scannedFiles = 0
 
-    const batchSize = 10;
+    const batchSize = 10
     for (let i = 0; i < allFiles.length; i += batchSize) {
-      const batch = allFiles.slice(i, i + batchSize);
+      const batch = allFiles.slice(i, i + batchSize)
       const batchResults = await Promise.all(
         batch.map(async (filePath) => {
           try {
-            const content = await props.client.readFile(filePath);
-            const lines = content.split('\n');
-            const matches: SearchResult[] = [];
+            const content = await props.client.readFile(filePath)
+            const lines = content.split('\n')
+            const matches: SearchResult[] = []
             for (let i = 0; i < lines.length; i++) {
               if (lines[i].toLowerCase().includes(qLower)) {
-                matches.push({
-                  path: filePath,
-                  line: i + 1,
-                  text: lines[i].trim().substring(0, 120),
-                });
+                matches.push({ path: filePath, line: i + 1, text: lines[i].trim().substring(0, 120) })
               }
             }
-            return matches;
+            return matches
           } catch {
-            return [] as SearchResult[];
+            return [] as SearchResult[]
           }
         })
-      );
+      )
       for (const matchList of batchResults) {
-        if (matchList.length > 0) scannedFiles++;
-        found.push(...matchList);
+        if (matchList.length > 0) scannedFiles++
+        found.push(...matchList)
       }
     }
 
-    results.value = found;
-    fileCount.value = scannedFiles;
+    results.value = found
+    fileCount.value = scannedFiles
   } catch {
-    results.value = [];
+    results.value = []
   } finally {
-    searching.value = false;
+    searching.value = false
   }
 }
 
 onMounted(async () => {
-  await nextTick();
-  searchInput.value?.focus();
-});
+  await nextTick()
+  searchInput.value?.focus()
+})
 </script>
 
 <style scoped>
@@ -167,41 +169,8 @@ onMounted(async () => {
   overflow: hidden;
 }
 .search-input-group {
-  display: flex;
   padding: 8px;
-  gap: 4px;
   border-bottom: 1px solid var(--border-color);
-}
-.search-input {
-  flex: 1;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 4px 8px;
-  font-size: 12px;
-  border-radius: 3px;
-  outline: none;
-  font-family: inherit;
-}
-.search-input:focus {
-  border-color: var(--accent-color);
-}
-.search-btn {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  padding: 4px 8px;
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 3px;
-}
-.search-btn:hover:not(:disabled) {
-  border-color: var(--accent-color);
-  color: var(--text-primary);
-}
-.search-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 .search-summary {
   padding: 6px 12px;
@@ -212,8 +181,6 @@ onMounted(async () => {
 }
 .search-status {
   padding: 16px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
   text-align: center;
 }
 .search-results {
@@ -235,10 +202,6 @@ onMounted(async () => {
 }
 .search-file-header:hover {
   background: var(--bg-hover);
-}
-.search-file-icon {
-  font-size: 12px;
-  flex-shrink: 0;
 }
 .search-file-name {
   flex: 1;

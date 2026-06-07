@@ -1,52 +1,59 @@
 <template>
   <div class="activity-bar">
     <div class="activity-top">
-      <div
+      <n-button
         v-for="item in items"
         :key="item.id"
+        quaternary
         class="activity-item"
         :class="{ active: activeId === item.id }"
         :title="item.label"
         @click="$emit('select', item.id)"
       >
-        <span class="activity-icon">{{ item.icon }}</span>
-        <div v-if="activeId === item.id" class="activity-indicator"></div>
-      </div>
+        <template #icon>
+          <n-icon size="22" :component="item.icon" />
+        </template>
+      </n-button>
     </div>
     <div v-if="bottomItems.length > 0" class="activity-bottom">
-      <div
+      <n-button
         v-for="item in bottomItems"
         :key="item.id"
+        quaternary
         class="activity-item"
         :class="{ active: activeId === item.id }"
         :title="item.label"
         @click="$emit('select', item.id)"
       >
-        <span class="activity-icon">{{ item.icon }}</span>
-        <div v-if="activeId === item.id" class="activity-indicator"></div>
-      </div>
+        <template #icon>
+          <n-icon size="22" :component="item.icon" />
+        </template>
+      </n-button>
     </div>
     <slot name="bottom" />
   </div>
 </template>
 
 <script setup lang="ts">
+import type { Component } from 'vue'
+import { NButton, NIcon } from 'naive-ui'
+
 /** 活动栏项目 */
 export interface ActivityItem {
-  id: string;
-  label: string;
-  icon: string;
+  id: string
+  label: string
+  icon: Component
 }
 
 defineProps<{
-  items: ActivityItem[];
-  bottomItems: ActivityItem[];
-  activeId: string;
-}>();
+  items: ActivityItem[]
+  bottomItems: ActivityItem[]
+  activeId: string
+}>()
 
 defineEmits<{
-  select: [id: string];
-}>();
+  select: [id: string]
+}>()
 </script>
 
 <style scoped>
@@ -66,41 +73,16 @@ defineEmits<{
   flex-direction: column;
 }
 .activity-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 48px;
   height: 48px;
-  cursor: pointer;
   color: #858585;
-  transition: color 0.1s;
+  border-radius: 0;
 }
 .activity-item:hover {
   color: var(--text-primary);
 }
 .activity-item.active {
   color: var(--text-primary);
-}
-.activity-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--text-primary);
-}
-.activity-indicator {
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 2px;
-  background: var(--text-primary);
-}
-.activity-icon {
-  font-size: 22px;
-  line-height: 1;
+  border-left: 2px solid var(--text-primary);
 }
 </style>
