@@ -1,8 +1,16 @@
-import type { FileEntry } from '@vibeeditor/core';
 import { i18n } from '../locales';
 
+export interface FileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size?: number;
+  modifiedAt?: number;
+  children?: FileEntry[];
+}
+
 /**
- * 文件服务客户端接口 —— 对 @vibeeditor/core 的 IFileSystem 的扩展
+ * 文件服务客户端接口
  *
  * 增加了 openFolder / openFile / saveFileAs 等 UI 交互方法。
  * 三种实现分别对应 Electron IPC、Server REST API、Browser File System Access API。

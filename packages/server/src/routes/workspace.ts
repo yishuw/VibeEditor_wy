@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import type { FileEntry } from '@vibeeditor/core';
+import type { FileEntry } from '../fs/types';
 import { WorkspaceManager } from '../workspace/manager';
 import type { LLMGateway } from '@vibeeditor/agent';
 import { createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
