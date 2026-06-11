@@ -63,6 +63,17 @@ export function useFileSystem() {
     store.workspaceMode = 'server';
   }
 
+  function getServerClient(): FileServiceClient {
+    if (!serverClient.value) {
+      let baseUrl = '';
+      if (typeof window !== 'undefined' && (window as any).__VIBE_SERVER_PORT__) {
+        baseUrl = `http://localhost:${(window as any).__VIBE_SERVER_PORT__}`;
+      }
+      serverClient.value = createServerClient(baseUrl);
+    }
+    return serverClient.value;
+  }
+
   function getClient(): FileServiceClient {
     return activeClient.value;
   }
@@ -162,8 +173,10 @@ export function useFileSystem() {
     const parentDir = lastSlash >= 0 ? normalizedPath.substring(0, lastSlash) || '/' : '/';
     const fileName = normalizedPath.split('/').pop() || '';
 
+    const wsClient = env === 'electron' ? getServerClient() : client;
+
     if (store.isSingleFile && store.activeWorkspaceId) {
-      try { await client.closeWorkspace(store.activeWorkspaceId); } catch { /* ignore */ }
+      try { await wsClient.closeWorkspace(store.activeWorkspaceId); } catch { /* ignore */ }
     }
 
     store.tabs.length = 0;
@@ -178,33 +191,19 @@ export function useFileSystem() {
 
     const mode: 'local' | 'server' = env === 'electron' ? 'local' : 'server';
 
-    let workspaceId: string | null = null;
-    if (mode === 'server') {
-      try {
-        const info = await client.openWorkspace(parentDir, undefined, true);
-        workspaceId = info.workspaceId;
-        client.setWorkspaceRoot?.(info.rootPath);
-        store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode, workspaceId }];
-        store.activeWorkspaceId = workspaceId;
-        const sessionStore = useSessionStore();
-        await sessionStore.bindWorkspace(workspaceId, info.agentSessions);
-      } catch {
-        error.value = t('fs.singleFileWorkspaceFailed');
-        return;
-      }
-    } else {
-      workspaceId = `ws_${Date.now()}`;
-      store.workspaceRoots = [{ path: parentDir, name: fileName, mode }];
-      store.activeWorkspaceId = null;
+    try {
+      const info = await wsClient.openWorkspace(parentDir, undefined, true);
+      store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode, workspaceId: info.workspaceId }];
+      store.activeWorkspaceId = info.workspaceId;
+      const sessionStore = useSessionStore();
+      await sessionStore.bindWorkspace(info.workspaceId, info.agentSessions);
+    } catch {
+      error.value = t('fs.singleFileWorkspaceFailed');
+      return;
     }
 
     store.workspaceMode = mode;
     store.enterSingleFileMode();
-
-    if (env === 'electron') {
-      const sessionStore = useSessionStore();
-      await sessionStore.bindWorkspace(null);
-    }
 
     await openAndReadFile(normalizedPath);
     window.electronAPI?.registerWorkspace?.(parentDir);
@@ -434,11 +433,23 @@ export function useFileSystem() {
       store.exitSingleFileMode();
       store.tabs.length = 0;
       store.activeTabId = null;
-      const rootName = root.split(/[\\/]/).pop() || root;
-      store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
-      store.activeWorkspaceId = null;
-      const sessionStore = useSessionStore();
-      await sessionStore.bindWorkspace(null);
+
+      const sc = getServerClient();
+      if (store.activeWorkspaceId) {
+        try { await sc.closeWorkspace(store.activeWorkspaceId); } catch { /* ignore */ }
+      }
+      try {
+        const info = await sc.openWorkspace(root);
+        client.setWorkspaceRoot?.(info.rootPath);
+        store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode: 'local', workspaceId: info.workspaceId }];
+        store.activeWorkspaceId = info.workspaceId;
+        const sessionStore = useSessionStore();
+        await sessionStore.bindWorkspace(info.workspaceId, info.agentSessions);
+      } catch {
+        error.value = t('fs.singleFileWorkspaceFailed');
+        return;
+      }
+
       await loadDirectory('.');
       window.electronAPI?.registerWorkspace?.(root);
       return;
@@ -455,12 +466,23 @@ export function useFileSystem() {
         store.exitSingleFileMode();
         store.tabs.length = 0;
         store.activeTabId = null;
-        const rootName = root.split(/[\\/]/).pop() || root;
-        store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
-        store.activeWorkspaceId = null;
-        // Electron 模式：无服务端工作区，Agent 会话用 localStorage
-        const sessionStore = useSessionStore();
-        await sessionStore.bindWorkspace(null);
+
+        const sc = getServerClient();
+        if (store.activeWorkspaceId) {
+          try { await sc.closeWorkspace(store.activeWorkspaceId); } catch { /* ignore */ }
+        }
+        try {
+          const info = await sc.openWorkspace(root);
+          client.setWorkspaceRoot?.(info.rootPath);
+          store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode: 'local', workspaceId: info.workspaceId }];
+          store.activeWorkspaceId = info.workspaceId;
+          const sessionStore = useSessionStore();
+          await sessionStore.bindWorkspace(info.workspaceId, info.agentSessions);
+        } catch {
+          error.value = t('fs.singleFileWorkspaceFailed');
+          return null;
+        }
+
         await loadDirectory('.');
         window.electronAPI?.registerWorkspace?.(root);
       }
@@ -577,9 +599,23 @@ export function useFileSystem() {
                 store.exitSingleFileMode();
                 store.tabs.length = 0;
                 store.activeTabId = null;
-                const rootName = root.split(/[\\/]/).pop() || root;
-                store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
-                store.activeWorkspaceId = null;
+
+                const sc = getServerClient();
+                if (store.activeWorkspaceId) {
+                  try { await sc.closeWorkspace(store.activeWorkspaceId); } catch { /* ignore */ }
+                }
+                try {
+                  const info = await sc.openWorkspace(root);
+                  client.setWorkspaceRoot?.(info.rootPath);
+                  store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode: 'local', workspaceId: info.workspaceId }];
+                  store.activeWorkspaceId = info.workspaceId;
+                  const sessionStore = useSessionStore();
+                  await sessionStore.bindWorkspace(info.workspaceId, info.agentSessions);
+                } catch {
+                  error.value = t('fs.singleFileWorkspaceFailed');
+                  return false;
+                }
+
                 await loadDirectory('.');
                 return true;
               }
@@ -606,7 +642,8 @@ export function useFileSystem() {
         .filter(t => !t.isUntitled)
         .map(t => ({ path: t.path }));
       const activeTabPath = store.activeTab?.isUntitled ? undefined : store.activeTab?.path;
-      await getClient().updateWorkspace(wsId, {
+      const client = env === 'electron' ? getServerClient() : getClient();
+      await client.updateWorkspace(wsId, {
         openTabs: tabInfos,
         activeTabPath,
       });

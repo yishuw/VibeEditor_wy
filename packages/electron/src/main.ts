@@ -219,6 +219,7 @@ function createWindow(workspacePath?: string, isFile?: boolean) {
       sandbox: false,
     },
   });
+  const wcId = win.webContents.id;
 
   win.loadURL(getLoadURL(workspacePath, isFile));
   toggleDevTools(win);
@@ -227,16 +228,15 @@ function createWindow(workspacePath?: string, isFile?: boolean) {
   win.on('unmaximize', () => win.webContents.send('window:maximizeChange', false));
 
   win.on('closed', () => {
-    const id = win.webContents.id;
-    openWindows.delete(id);
-    clearWindowRoot(id);
+    openWindows.delete(wcId);
+    clearWindowRoot(wcId);
     if (mainWindow === win) {
       mainWindow = null;
     }
   });
 
   if (workspacePath) {
-    openWindows.set(win.webContents.id, { window: win, workspacePath });
+    openWindows.set(wcId, { window: win, workspacePath });
   }
 
   return win;
@@ -276,10 +276,12 @@ app.whenReady().then(() => {
     const normalizedPath = workspacePath.replace(/\\/g, '/').toLowerCase();
     for (const [id, entry] of openWindows) {
       if (entry.workspacePath.replace(/\\/g, '/').toLowerCase() === normalizedPath) {
-        const win = BrowserWindow.fromWebContents({ id } as Electron.WebContents);
-        if (win) {
+        const win = entry.window;
+        if (win && !win.isDestroyed()) {
           if (win.isMinimized()) win.restore();
           win.focus();
+        } else {
+          openWindows.delete(id);
         }
         return { status: 'duplicate' };
       }
