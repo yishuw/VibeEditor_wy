@@ -162,30 +162,51 @@ export function useFileSystem() {
     const parentDir = lastSlash >= 0 ? normalizedPath.substring(0, lastSlash) || '/' : '/';
     const fileName = normalizedPath.split('/').pop() || '';
 
-    // 设置工作区根目录（仅用于路径解析，不加载目录内容）
+    if (store.isSingleFile && store.activeWorkspaceId) {
+      try { await client.closeWorkspace(store.activeWorkspaceId); } catch { /* ignore */ }
+    }
+
+    store.tabs.length = 0;
+    store.activeTabId = null;
+    store.fileTreeNodes = [];
+
     if (env === 'electron' && client.openFolderPath) {
       await client.openFolderPath(parentDir);
     } else {
       client.setWorkspaceRoot?.(parentDir);
     }
 
-    // 虚拟工作区：root 指向父目录（供 handleApplyEdits 路径解析），文件树保持为空
-    store.workspaceRoots = [{
-      path: parentDir,
-      name: fileName,
-      mode: env === 'electron' ? 'local' : 'server',
-    }];
-    store.activeWorkspaceId = null;
-    store.workspaceMode = env === 'electron' ? 'local' : 'server';
-    store.fileTreeNodes = [];
+    const mode: 'local' | 'server' = env === 'electron' ? 'local' : 'server';
 
-    // 单文件工作区：清空 Agent 会话（不持久化）
-    const sessionStore = useSessionStore();
-    await sessionStore.bindWorkspace(null);
+    let workspaceId: string | null = null;
+    if (mode === 'server') {
+      try {
+        const info = await client.openWorkspace(parentDir, undefined, true);
+        workspaceId = info.workspaceId;
+        client.setWorkspaceRoot?.(info.rootPath);
+        store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode, workspaceId }];
+        store.activeWorkspaceId = workspaceId;
+        const sessionStore = useSessionStore();
+        await sessionStore.bindWorkspace(workspaceId, info.agentSessions);
+      } catch {
+        error.value = t('fs.singleFileWorkspaceFailed');
+        return;
+      }
+    } else {
+      workspaceId = `ws_${Date.now()}`;
+      store.workspaceRoots = [{ path: parentDir, name: fileName, mode }];
+      store.activeWorkspaceId = null;
+    }
 
-    // 用完整路径打开文件，确保标签页路径可被 Agent 编辑匹配
+    store.workspaceMode = mode;
+    store.enterSingleFileMode();
+
+    if (env === 'electron') {
+      const sessionStore = useSessionStore();
+      await sessionStore.bindWorkspace(null);
+    }
+
     await openAndReadFile(normalizedPath);
-
     window.electronAPI?.registerWorkspace?.(parentDir);
   }
 
@@ -406,15 +427,20 @@ export function useFileSystem() {
     if (env === 'electron') {
       const client = getClient();
       const root = await client.openFolderPath?.(folderPath);
-      if (root) {
-        const rootName = root.split(/[\\/]/).pop() || root;
-        store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
-        store.activeWorkspaceId = null;
-        const sessionStore = useSessionStore();
-        await sessionStore.bindWorkspace(null);
-        await loadDirectory('.');
-        window.electronAPI?.registerWorkspace?.(root);
+      if (!root) {
+        error.value = `Failed to open folder path: ${folderPath}`;
+        return;
       }
+      store.exitSingleFileMode();
+      store.tabs.length = 0;
+      store.activeTabId = null;
+      const rootName = root.split(/[\\/]/).pop() || root;
+      store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
+      store.activeWorkspaceId = null;
+      const sessionStore = useSessionStore();
+      await sessionStore.bindWorkspace(null);
+      await loadDirectory('.');
+      window.electronAPI?.registerWorkspace?.(root);
       return;
     }
     await openWorkspaceAtPath(folderPath);
@@ -426,6 +452,9 @@ export function useFileSystem() {
       const client = getClient();
       const root = await client.openFolder();
       if (root) {
+        store.exitSingleFileMode();
+        store.tabs.length = 0;
+        store.activeTabId = null;
         const rootName = root.split(/[\\/]/).pop() || root;
         store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
         store.activeWorkspaceId = null;
@@ -476,8 +505,14 @@ export function useFileSystem() {
   async function openWorkspaceAtPath(rootPath: string): Promise<WorkspaceInfo> {
     error.value = null;
     try {
+      store.exitSingleFileMode();
       const client = getClient();
       const info = await client.openWorkspace(rootPath);
+      if (store.activeWorkspaceId && store.activeWorkspaceId !== info.workspaceId) {
+        try { await client.closeWorkspace(store.activeWorkspaceId); } catch { /* ignore */ }
+      }
+      store.tabs.length = 0;
+      store.activeTabId = null;
       client.setWorkspaceRoot?.(info.rootPath);
       store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode: 'server', workspaceId: info.workspaceId }];
       store.activeWorkspaceId = info.workspaceId;
@@ -539,6 +574,9 @@ export function useFileSystem() {
             if (isDirectory) {
               const root = await client.openFolderPath(droppedPath);
               if (root) {
+                store.exitSingleFileMode();
+                store.tabs.length = 0;
+                store.activeTabId = null;
                 const rootName = root.split(/[\\/]/).pop() || root;
                 store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
                 store.activeWorkspaceId = null;
