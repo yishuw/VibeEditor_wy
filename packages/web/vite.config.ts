@@ -39,6 +39,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['monaco-editor'], // 预构建 monaco-editor 以加速冷启动
+    exclude: ['async-validator'],
   },
   worker: {
     format: 'es', // Web Worker 使用 ES 模块格式

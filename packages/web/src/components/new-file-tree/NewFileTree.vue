@@ -377,7 +377,7 @@ function handleMenuSelect(key: string, payload: ContextMenuPayload) {
 
 .tree-spin {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .tree-spin :deep(.n-spin-content) {
