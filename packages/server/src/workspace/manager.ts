@@ -1,5 +1,4 @@
 import { AgentRuntime, type AgentRuntimeConfig, createLogger, LOG_CATEGORY } from '@vibeeditor/agent';
-import { LocalFileSystem } from '@vibeeditor/core';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { LLMGateway } from '@vibeeditor/agent';
