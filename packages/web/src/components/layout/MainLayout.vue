@@ -1300,7 +1300,14 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 .undo-dismiss:hover {
   color: var(--text-primary);
 }
-.resize-handle {
+.resize-handle.resize-n,
+.resize-handle.resize-s,
+.resize-handle.resize-e,
+.resize-handle.resize-w,
+.resize-handle.resize-ne,
+.resize-handle.resize-nw,
+.resize-handle.resize-se,
+.resize-handle.resize-sw {
   position: fixed;
   z-index: 9999;
 }
