@@ -1,6 +1,10 @@
 import type { ITool, ToolExecutionContext, ToolInputSchema, ToolAnnotations } from '../types/tool';
 import type { CallToolResult, ListToolsResult } from '@modelcontextprotocol/sdk/types';
 import { formatMCPResult } from './utils';
+import { createLogger } from '../logger';
+import { LOG_CATEGORY } from '../log-categories';
+
+const log = createLogger(LOG_CATEGORY.MCP_ADAPTER);
 
 type MCPToolDefinition = ListToolsResult['tools'][number];
 
@@ -42,9 +46,13 @@ export class MCPToolAdapter implements ITool {
   async execute(params: Record<string, string>, _context: ToolExecutionContext): Promise<string> {
     try {
       const args = this.coerceParams(params);
+      const startMs = Date.now();
       const result = await this.callHandler(this.originalName, args);
-      return formatMCPResult(this.name, result);
+      const output = formatMCPResult(this.name, result);
+      log.info(`${this.name}: ${Date.now() - startMs}ms, ${output.length} chars`, { tool: this.name, originalName: this.originalName });
+      return output;
     } catch (e: any) {
+      log.warn(`${this.name} error: ${e.message}`, { tool: this.name, error: e.message });
       return `MCP tool error (${this.name}): ${e.message}`;
     }
   }

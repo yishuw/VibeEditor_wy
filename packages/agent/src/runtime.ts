@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentContext } from './types/agent';
+import type { AgentConfig, AgentContext, SessionMessage } from './types/agent';
 import type { IAgentFileSystem } from './types/filesystem';
 import type { AgentEditResult } from './types/message';
 import type { McpServerEntry, McpConfig } from './mcp/config';
@@ -10,6 +10,9 @@ import { McpManager } from './mcp/manager';
 import { createOpenAILLMProvider, buildMessages } from './openai-client';
 import { executeEdits } from './executor';
 import { parseEditsFromText, type ParsedEdit } from './parser';
+import { createLogger } from './logger';
+
+const log = createLogger('AgentRuntime');
 
 export interface AgentRuntimeConfig {
   mode: 'build' | 'plan';
@@ -35,7 +38,7 @@ export interface ChatResult {
 }
 
 export interface AgentRuntimeEvent {
-  type: 'chunk' | 'thinking' | 'tool_start' | 'tool_end' | 'done' | 'error';
+  type: 'chunk' | 'thinking' | 'tool_start' | 'tool_end' | 'tool_result' | 'done' | 'error';
   text?: string;
   toolName?: string;
   toolLabel?: string;
@@ -71,6 +74,7 @@ export class AgentRuntime {
   private mcpManager: McpManager | null = null;
   private mcpTools: ITool[] = [];
   private initialized = false;
+  private sessionMap = new Map<string, Session>();
 
   constructor(config: AgentRuntimeConfig) {
     this.config = config;
@@ -133,7 +137,7 @@ export class AgentRuntime {
         await this.mcpManager.connectAll(mcpConfig);
         this.mcpTools = await this.mcpManager.discoverAndCreateAdapters();
       } catch (e: any) {
-        console.error(`[AgentRuntime] MCP connection failed: ${e.message}`);
+        log.error(`MCP connection failed: ${e.message}`);
       }
     }
 
@@ -149,7 +153,14 @@ export class AgentRuntime {
     this.initialized = false;
   }
 
-  async chat(message: string, context: AgentContext): Promise<ChatResult> {
+  /** 重新初始化 MCP 连接（当 MCP 配置变更时使用） */
+  async reinitialize(mcpServers?: typeof this.config.mcpServers): Promise<void> {
+    await this.dispose();
+    if (mcpServers) this.config.mcpServers = mcpServers;
+    await this.initialize();
+  }
+
+  async chat(message: string, context: AgentContext, sessionId = 'default'): Promise<ChatResult> {
     await this.initialize();
 
     if (this.agentConfig.mode === 'plan') {
@@ -159,8 +170,7 @@ export class AgentRuntime {
       return this.buildResult(content, 1, []);
     }
 
-    const agent = this.createAgent();
-    const session = new Session('default', this.fs, agent);
+    const session = this.getOrCreateSession(sessionId);
     const result = await session.start(message, context);
     return this.buildResult(result.mainResult.content, result.mainResult.turns, result.mainResult.toolCalls);
   }
@@ -168,7 +178,9 @@ export class AgentRuntime {
   async chatStream(
     message: string,
     context: AgentContext,
-    onEvent?: AgentRuntimeEventCallback
+    onEvent?: AgentRuntimeEventCallback,
+    signal?: AbortSignal,
+    sessionId = 'default'
   ): Promise<ChatResult> {
     await this.initialize();
 
@@ -176,8 +188,7 @@ export class AgentRuntime {
       return this.runPlanStream(message, context, onEvent);
     }
 
-    const agent = this.createAgent();
-    const session = new Session('default', this.fs, agent);
+    const session = this.getOrCreateSession(sessionId);
 
     const emit = (e: AgentRuntimeEvent) => onEvent?.(e);
     const sessionEvent = (se: SessionEvent) => {
@@ -194,6 +205,9 @@ export class AgentRuntime {
         case 'tool_end':
           emit({ type: 'tool_end', toolName: se.toolType });
           break;
+        case 'tool_result':
+          emit({ type: 'tool_result', toolName: se.toolType, text: se.data });
+          break;
         case 'done':
           break;
         case 'error':
@@ -203,7 +217,7 @@ export class AgentRuntime {
     };
 
     try {
-      const result = await session.startStream(message, context, sessionEvent);
+      const result = await session.startStream(message, context, sessionEvent, signal);
       emit({ type: 'done' });
       return this.buildResult(result.mainResult.content, result.mainResult.turns, result.mainResult.toolCalls);
     } catch (e: any) {
@@ -228,6 +242,38 @@ export class AgentRuntime {
     return this.fs;
   }
 
+  // ====================== Session 管理 ======================
+
+  private getOrCreateSession(sessionId: string): Session {
+    let session = this.sessionMap.get(sessionId);
+    if (!session) {
+      const agent = this.createAgent();
+      session = new Session(sessionId, agent);
+      this.sessionMap.set(sessionId, session);
+    }
+    return session;
+  }
+
+  getSessionMessages(sessionId: string): SessionMessage[] {
+    const session = this.sessionMap.get(sessionId);
+    return session ? [...session.messages] : [];
+  }
+
+  restoreSession(sessionId: string, messages: SessionMessage[]): void {
+    const agent = this.createAgent();
+    const session = new Session(sessionId, agent);
+    session.messages = [...messages];
+    this.sessionMap.set(sessionId, session);
+  }
+
+  getSessionIds(): string[] {
+    return Array.from(this.sessionMap.keys());
+  }
+
+  deleteSession(sessionId: string): void {
+    this.sessionMap.delete(sessionId);
+  }
+
   // ====================== 内部实现 ======================
 
   private createAgent(): Agent {
@@ -238,10 +284,10 @@ export class AgentRuntime {
         systemPrompt: this.agentConfig.systemPrompt || DEFAULT_SYSTEM_PROMPT,
         temperature: this.agentConfig.temperature,
         maxTokens: this.agentConfig.maxTokens,
-        maxTurns: this.config.maxTurns,
+        maxTurns: this.config.maxTurns ?? (this.config.mode === 'build' ? 20 : 10),
       },
       this.agentConfig,
-      this.fs,
+      this.config.workspaceRoot,
       this.mcpTools.length > 0 ? this.mcpTools : undefined
     );
   }
@@ -271,10 +317,15 @@ export class AgentRuntime {
     turns: number,
     toolCalls: { type: string; params: Record<string, string> }[]
   ): ChatResult {
+    const hasEditTag = /<edit\s/i.test(content);
+    const edits = parseEditsFromText(content);
+    if (hasEditTag) {
+      log.info(`Content has <edit> tag, parsed ${edits.length} edit(s): ${edits.map(e => e.path).join(', ') || '(none)'}`);
+    }
     return {
       content,
       turns,
-      edits: parseEditsFromText(content),
+      edits,
       toolCalls,
     };
   }

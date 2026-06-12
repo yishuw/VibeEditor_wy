@@ -1,45 +1,16 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
-  createBrowserLocalClient,
   createFileServiceClient,
   createServerClient,
-  pickLocalFolder,
-  pickLocalFile,
   detectEnvironment,
   type FileServiceClient,
+  type WorkspaceInfo,
 } from '../services/fileService';
 import { getEditorInstance } from '../services/editorInstance';
 import { useEditorStore, getViewModeFromPath } from '../stores/editor';
+import { useSessionStore } from '../stores/sessions';
 import { useFileClipboard } from './useFileClipboard';
-
-type DroppedFile = File & { path?: string };
-type DroppedDirectoryItem = DataTransferItem & {
-  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
-  webkitGetAsEntry?: () => { isDirectory: boolean } | null;
-};
-
-// Electron adds the real filesystem path to dropped File objects.
-function getDroppedFilePaths(dataTransfer: DataTransfer): string[] {
-  return Array.from(dataTransfer.files)
-    .map(file => (file as DroppedFile).path)
-    .filter((path): path is string => Boolean(path));
-}
-
-// Browser drops can expose a directory handle instead of a native path.
-async function getDroppedDirectoryHandle(dataTransfer: DataTransfer): Promise<FileSystemDirectoryHandle | null> {
-  for (const item of Array.from(dataTransfer.items)) {
-    if (item.kind !== 'file') continue;
-
-    const droppedItem = item as DroppedDirectoryItem;
-    if (droppedItem.getAsFileSystemHandle) {
-      const handle = await droppedItem.getAsFileSystemHandle();
-      if (handle?.kind === 'directory') return handle as FileSystemDirectoryHandle;
-    }
-  }
-
-  return null;
-}
 
 /**
  * 文件系统交互 composable
@@ -59,17 +30,13 @@ export function useFileSystem() {
   const error = ref<string | null>(null);
   const activeClient = ref<FileServiceClient>(defaultClient);
   const serverClient = ref<FileServiceClient | null>(null);
-  const localClient = ref<FileServiceClient | null>(null);
   const env = detectEnvironment();
 
-  // 浏览器模式多工作区：每个根路径对应独立的 FileServiceClient
-  const rootClients = new Map<string, FileServiceClient>();
-
-  // saveAs 回调：由 MainLayout 注册的"另存为"对话框处理函数
   let saveAsHandler: (() => Promise<string | null>) | null = null;
   let onAfterSave: ((savePath: string) => void) | null = null;
+  let openFolderDialogHandler: (() => Promise<string | null>) | null = null;
+  let openFileDialogHandler: (() => Promise<string | null>) | null = null;
 
-  // 删除撤销相关
   const lastDeleted = ref<{ path: string; content: string } | null>(null);
   const showUndoNotification = ref(false);
   let undoTimer: ReturnType<typeof setTimeout> | null = null;
@@ -82,7 +49,14 @@ export function useFileSystem() {
     onAfterSave = callback;
   }
 
-  // browser / server 环境下默认创建服务端客户端
+  function setOpenFolderDialogHandler(handler: () => Promise<string | null>) {
+    openFolderDialogHandler = handler;
+  }
+
+  function setOpenFileDialogHandler(handler: () => Promise<string | null>) {
+    openFileDialogHandler = handler;
+  }
+
   if (env === 'browser' || env === 'server') {
     serverClient.value = createServerClient();
     activeClient.value = serverClient.value;
@@ -93,68 +67,12 @@ export function useFileSystem() {
     return activeClient.value;
   }
 
-  /** 多工作区：根据路径查找对应的 client 并返回去除根前缀的相对路径 */
-  function resolveClient(filePath: string): { client: FileServiceClient; relativePath: string } {
-    for (const [rootPath, client] of rootClients.entries()) {
-      const normalized = rootPath.replace(/[\\/]$/, '');
-      if (filePath.startsWith(normalized + '/')) {
-        return { client, relativePath: filePath.slice(normalized.length + 1) };
-      }
-      if (filePath.startsWith(normalized + '\\')) {
-        return { client, relativePath: filePath.slice(normalized.length + 1) };
-      }
-      if (filePath === normalized) {
-        return { client, relativePath: filePath };
-      }
-    }
-    return { client: getClient(), relativePath: filePath };
-  }
-
-  /** 根据虚拟路径解析实际路径并选择正确的 client 读取目录 */
-  async function readDirForPath(virtualPath: string): Promise<any[]> {
-    const actualPath = virtualPath.startsWith('__root__') ? virtualPath.slice(8) : virtualPath;
-
-    for (const [rootPath, client] of rootClients.entries()) {
-      if (actualPath === rootPath) {
-        return client.readDir('.');
-      }
-      if (actualPath.startsWith(rootPath + '/') || actualPath.startsWith(rootPath + '\\')) {
-        const relativePath = actualPath.slice(rootPath.length + 1);
-        const entries = await client.readDir(relativePath);
-        // 浏览器客户端的 readDir 返回的路径自带目录前缀，剥离后由 handleExpandDir 统一拼接
-        const prefix = relativePath + '/';
-        return entries.map((e: any) => ({
-          ...e,
-          path: e.path.startsWith(prefix) ? e.path.slice(prefix.length) : e.path,
-        }));
-      }
-    }
-
-    // Fallback: server/electron 模式，entry.path 相对于 cwd 而非读取目录，
-    // 用 entry.name 替代以消除路径前缀，由 handleExpandDir 统一拼接 displayRoot
-    const entries = await getClient().readDir(actualPath);
-    return entries.map((e: any) => ({ ...e, path: e.name }));
-  }
-
   /** 加载目录内容到 store.fileTreeNodes */
   async function loadDirectory(dirPath: string = '.') {
     isLoading.value = true;
     error.value = null;
     try {
-      const client = getClient();
-      if (dirPath === '.' && store.workspaceRoots.length > 1) {
-        const rootNodes: any[] = [];
-        for (const root of store.workspaceRoots) {
-          rootNodes.push({
-            name: root.name,
-            path: `__root__${root.path}`,
-            isDirectory: true,
-          });
-        }
-        store.fileTreeNodes = rootNodes;
-        return rootNodes;
-      }
-      const entries = await client.readDir(dirPath);
+      const entries = await getClient().readDir(dirPath);
       store.fileTreeNodes = entries;
       return entries;
     } catch (e: any) {
@@ -195,30 +113,28 @@ export function useFileSystem() {
     try {
       const ext = filePath.split('.').pop()?.toLowerCase() || '';
       const viewMode = getViewModeFromPath(filePath);
-
-      const resolved = resolveClient(filePath);
-      const readPath = resolved.relativePath;
+      const client = getClient();
 
       if (viewMode === 'image') {
-        const buffer = await resolved.client.readFileBuffer(readPath);
+        const buffer = await client.readFileBuffer(filePath);
         const mime = getMimeType(ext);
         store.openFile(filePath, arrayBufferToDataUrl(buffer, mime));
       } else if (viewMode === 'docx') {
-        const buffer = await resolved.client.readFileBuffer(readPath);
+        const buffer = await client.readFileBuffer(filePath);
         store.openFile(filePath, arrayBufferToBase64(buffer));
       } else if (viewMode === 'excel') {
-        const buffer = await resolved.client.readFileBuffer(readPath);
+        const buffer = await client.readFileBuffer(filePath);
         store.openFile(filePath, arrayBufferToBase64(buffer));
       } else if (viewMode === 'pptx') {
-        const buffer = await resolved.client.readFileBuffer(readPath);
+        const buffer = await client.readFileBuffer(filePath);
         store.openFile(filePath, arrayBufferToBase64(buffer));
       } else if (viewMode === 'pdf') {
-        const buffer = await resolved.client.readFileBuffer(readPath);
+        const buffer = await client.readFileBuffer(filePath);
         store.openFile(filePath, arrayBufferToBase64(buffer));
       } else if (ext === 'doc') {
         store.openFile(filePath, '');
       } else {
-        const content = await resolved.client.readFile(readPath);
+        const content = await client.readFile(filePath);
         store.openFile(filePath, content);
       }
     } catch (e: any) {
@@ -226,6 +142,49 @@ export function useFileSystem() {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  /**
+   * 以单个文件为虚拟工作区，直接打开该文件。
+   *
+   * 与完整工作区（Open Folder）的区别：
+   * - 不调用服务端 /api/workspace/open（不创建 .vibeeditor 目录）
+   * - 不加载文件树（工作区是虚拟的，无真实文件夹承载）
+   * - 不持久化标签页状态
+   * - workspaceId 为 null
+   *
+   * 适用于 Open File 对话框和拖拽文件两种场景。
+   */
+  async function openFileAsLightweightWorkspace(filePath: string) {
+    const client = getClient();
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    const lastSlash = normalizedPath.lastIndexOf('/');
+    const parentDir = lastSlash >= 0 ? normalizedPath.substring(0, lastSlash) || '/' : '/';
+    const fileName = normalizedPath.split('/').pop() || '';
+
+    // 设置工作区根目录（仅用于路径解析，不加载目录内容）
+    if (env === 'electron' && client.openFolderPath) {
+      await client.openFolderPath(parentDir);
+    } else {
+      client.setWorkspaceRoot?.(parentDir);
+    }
+
+    // 虚拟工作区：root 指向父目录（供 handleApplyEdits 路径解析），文件树保持为空
+    store.workspaceRoots = [{
+      path: parentDir,
+      name: fileName,
+      mode: env === 'electron' ? 'local' : 'server',
+    }];
+    store.activeWorkspaceId = null;
+    store.workspaceMode = env === 'electron' ? 'local' : 'server';
+    store.fileTreeNodes = [];
+
+    // 单文件工作区：清空 Agent 会话（不持久化）
+    const sessionStore = useSessionStore();
+    await sessionStore.bindWorkspace(null);
+
+    // 用完整路径打开文件，确保标签页路径可被 Agent 编辑匹配
+    await openAndReadFile(normalizedPath);
   }
 
   /** 保存当前活动标签页到文件系统 */
@@ -342,8 +301,8 @@ export function useFileSystem() {
     error.value = null;
     try {
       const fullPath = dirPath ? dirPath.replace(/\/$/, '') + '/' + fileName : fileName;
-      const { client, relativePath } = resolveClient(fullPath);
-      await client.writeFile(relativePath, '');
+      const client = getClient();
+      await client.writeFile(fullPath, '');
       onAfterSave?.(fullPath);
     } catch (e: any) {
       error.value = e.message;
@@ -355,8 +314,8 @@ export function useFileSystem() {
     error.value = null;
     try {
       const fullPath = parentPath ? parentPath.replace(/\/$/, '') + '/' + folderName : folderName;
-      const { client, relativePath } = resolveClient(fullPath);
-      await client.createDir(relativePath);
+      const client = getClient();
+      await client.createDir(fullPath);
       onAfterSave?.(fullPath);
     } catch (e: any) {
       error.value = e.message;
@@ -369,9 +328,8 @@ export function useFileSystem() {
     try {
       const parentPath = oldPath.replace(/[^/\\]+$/, '');
       const newPath = parentPath + newName;
-      const { client, relativePath: relOld } = resolveClient(oldPath);
-      const { relativePath: relNew } = resolveClient(newPath);
-      await client.rename(relOld, relNew);
+      const client = getClient();
+      await client.rename(oldPath, newPath);
 
       const openTabs = store.tabs.filter(t => t.path === oldPath);
       for (const tab of openTabs) {
@@ -392,11 +350,10 @@ export function useFileSystem() {
     try {
       const targetParent = targetDir ? targetDir.replace(/\/$/, '') : '';
       const targetPath = targetParent ? targetParent + '/' + item.name : item.name;
+      const client = getClient();
 
       if (item.action === 'cut') {
-        const { client, relativePath: relSrc } = resolveClient(item.path);
-        const { relativePath: relTarget } = resolveClient(targetPath);
-        await client.rename(relSrc, relTarget);
+        await client.rename(item.path, targetPath);
 
         const openTabs = store.tabs.filter(t => t.path === item.path);
         for (const tab of openTabs) {
@@ -404,14 +361,11 @@ export function useFileSystem() {
         }
         clipboard.value = null;
       } else {
-        const { client, relativePath: relSrc } = resolveClient(item.path);
-        const { client: targetClient, relativePath: relTarget } = resolveClient(targetPath);
-
         if (item.isDirectory) {
-          await copyDirRecursive(client, targetClient, relSrc, relTarget);
+          await copyDirRecursive(client, client, item.path, targetPath);
         } else {
-          const content = await client.readFile(relSrc);
-          await targetClient.writeFile(relTarget, content);
+          const content = await client.readFile(item.path);
+          await client.writeFile(targetPath, content);
         }
       }
       onAfterSave?.(targetDir || '.');
@@ -420,140 +374,137 @@ export function useFileSystem() {
     }
   }
 
-  /** 打开浏览器本地文件夹选择器 */
-  async function openLocalFolder() {
-    error.value = null;
-    try {
-      const client = await pickLocalFolder();
-      if (client) {
-        localClient.value = client;
-        activeClient.value = client;
-        store.workspaceMode = 'local';
-        store.workspaceRoots = [{ path: client.rootName || t('fs.localFolder'), name: client.rootName || t('fs.localFolder'), mode: 'local' }];
-        await loadDirectory('.');
-      }
-    } catch (e: any) {
-      error.value = e.message;
-    }
-  }
-
-  /** 打开浏览器本地文件选择器 */
-  async function openLocalFile() {
-    error.value = null;
-    try {
-      const result = await pickLocalFile();
-      if (!result) return;
-      const ext = result.path.split('.').pop()?.toLowerCase() || '';
-      const viewMode = getViewModeFromPath(result.path);
-
-      if (viewMode === 'image') {
-        const buffer = await result.file.arrayBuffer();
-        const mime = getMimeType(ext);
-        store.openFile(result.path, arrayBufferToDataUrl(buffer, mime));
-      } else if (viewMode === 'docx') {
-        const buffer = await result.file.arrayBuffer();
-        store.openFile(result.path, arrayBufferToBase64(buffer));
-      } else if (viewMode === 'excel') {
-        const buffer = await result.file.arrayBuffer();
-        store.openFile(result.path, arrayBufferToBase64(buffer));
-      } else if (viewMode === 'pptx') {
-        const buffer = await result.file.arrayBuffer();
-        store.openFile(result.path, arrayBufferToBase64(buffer));
-      } else if (viewMode === 'pdf') {
-        const buffer = await result.file.arrayBuffer();
-        store.openFile(result.path, arrayBufferToBase64(buffer));
-      } else if (ext === 'doc') {
-        store.openFile(result.path, '');
-      } else {
-        const text = await result.file.text();
-        store.openFile(result.path, text);
-      }
-    } catch (e: any) {
-      error.value = e.message;
-    }
-  }
-
-  /** 切换到服务端文件系统模式 */
-  async function connectToServer() {
-    error.value = null;
-    if (!serverClient.value) {
-      serverClient.value = createServerClient();
-    }
-    activeClient.value = serverClient.value;
-    store.workspaceMode = 'server';
-    store.workspaceRoots = [{ path: t('fs.serverFiles'), name: t('fs.serverFiles'), mode: 'server' }];
-    await loadDirectory('.');
-  }
-
   /** 根据当前环境选择合适的"打开文件夹"方式 */
-  async function openFolderDialog() {
+  async function openFolderDialog(): Promise<string | null> {
     if (env === 'electron') {
       const client = getClient();
       const root = await client.openFolder();
       if (root) {
-        store.workspaceRoots = [{ path: root, name: root.split(/[\\/]/).pop() || root, mode: 'local' }];
+        const rootName = root.split(/[\\/]/).pop() || root;
+        store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
+        store.activeWorkspaceId = null;
+        // Electron 模式：无服务端工作区，Agent 会话用 localStorage
+        const sessionStore = useSessionStore();
+        await sessionStore.bindWorkspace(null);
         await loadDirectory('.');
       }
-    } else if (env === 'browser') {
-      await openLocalFolder();
-    } else {
-      await connectToServer();
+      return root;
+    }
+
+    // server / browser 模式：使用自定义对话框
+    if (openFolderDialogHandler) {
+      const rootPath = await openFolderDialogHandler();
+      if (rootPath) {
+        await openWorkspaceAtPath(rootPath);
+        return rootPath;
+      }
+    }
+    return null;
+  }
+
+  /** 根据当前环境选择合适的"打开文件"方式 */
+  async function openFileDialog(): Promise<string | null> {
+    if (env === 'electron') {
+      const client = getClient();
+      const result = await client.openFile();
+      if (result) {
+        await openFileAsLightweightWorkspace(result.path);
+        return result.path;
+      }
+      return null;
+    }
+
+    // server 模式：使用自定义对话框
+    if (openFileDialogHandler) {
+      const filePath = await openFileDialogHandler();
+      if (filePath) {
+        await openFileAsLightweightWorkspace(filePath);
+        return filePath;
+      }
+    }
+    return null;
+  }
+
+  /** 通过 server API 打开工作区 */
+  async function openWorkspaceAtPath(rootPath: string): Promise<WorkspaceInfo> {
+    error.value = null;
+    try {
+      const client = getClient();
+      const info = await client.openWorkspace(rootPath);
+      client.setWorkspaceRoot?.(info.rootPath);
+      store.workspaceRoots = [{ path: info.rootPath, name: info.rootName, mode: 'server', workspaceId: info.workspaceId }];
+      store.activeWorkspaceId = info.workspaceId;
+      store.workspaceMode = 'server';
+
+      // 绑定 Agent 会话到工作区
+      const sessionStore = useSessionStore();
+      await sessionStore.bindWorkspace(info.workspaceId, info.agentSessions);
+
+      await loadDirectory('.');
+
+      // 恢复上次打开的标签页（兼容文件已删除的情况）
+      if (info.openTabs && info.openTabs.length > 0) {
+        for (const tabInfo of info.openTabs) {
+          const exists = await client.exists(tabInfo.path).catch(() => false);
+          if (exists) {
+            await openAndReadFile(tabInfo.path);
+          }
+        }
+        if (info.activeTabPath) {
+          store.setActiveTabByName?.(info.activeTabPath);
+        }
+      }
+
+      return info;
+    } catch (e: any) {
+      error.value = e.message;
+      throw e;
     }
   }
 
+  /** 拖放打开文件夹或文件（仅 Electron 模式支持） */
   async function openDroppedFolder(dataTransfer: DataTransfer | null): Promise<boolean> {
     error.value = null;
     if (!dataTransfer) return false;
 
+    // Server / Browser 模式：无法获取文件系统路径，不支持拖放
+    if (env !== 'electron') {
+      error.value = t('fs.dropNotSupported');
+      return false;
+    }
+
     try {
       const client = getClient();
 
-      // In Electron, validate and open the dropped native path in the main process.
-      if (env === 'electron' && client.openFolderPath) {
-        const droppedPaths = getDroppedFilePaths(dataTransfer);
-        let lastError: string | null = null;
+      if (client.openFolderPath) {
+        const dropped = Array.from(dataTransfer.files)
+          .map(f => (f as File & { path?: string }).path)
+          .filter((p): p is string => Boolean(p));
 
-        for (const droppedPath of droppedPaths) {
+        for (const droppedPath of dropped) {
           try {
-            const root = await client.openFolderPath(droppedPath);
-            if (root) {
-              store.addWorkspaceRoot({ path: root, name: root.split(/[\\/]/).pop() || root, mode: 'local' });
-              await loadDirectory('.');
+            let isDirectory = false;
+            try {
+              const entry = await client.stat(droppedPath);
+              isDirectory = entry.isDirectory;
+            } catch { /* stat 失败，假定为文件 */ }
+
+            if (isDirectory) {
+              const root = await client.openFolderPath(droppedPath);
+              if (root) {
+                const rootName = root.split(/[\\/]/).pop() || root;
+                store.workspaceRoots = [{ path: root, name: rootName, mode: 'local' }];
+                store.activeWorkspaceId = null;
+                await loadDirectory('.');
+                return true;
+              }
+            } else {
+              await openFileAsLightweightWorkspace(droppedPath);
               return true;
             }
-          } catch (e: any) {
-            lastError = e.message;
-          }
-        }
-
-        if (droppedPaths.length > 0) {
-          error.value = lastError || t('fs.dropFolder');
-          return false;
+          } catch { /* try next */ }
         }
       }
-
-      // In supporting browsers, reuse the existing local File System Access client.
-      const dirHandle = await getDroppedDirectoryHandle(dataTransfer);
-      if (dirHandle) {
-        const droppedClient = createBrowserLocalClient(dirHandle);
-        localClient.value = droppedClient;
-        activeClient.value = droppedClient;
-        const rootName = droppedClient.rootName || t('fs.localFolder');
-        store.addWorkspaceRoot({ path: rootName, name: rootName, mode: 'local' });
-        rootClients.set(rootName, droppedClient);
-        await loadDirectory('.');
-        return true;
-      }
-
-      // Some browsers can identify a directory drop but cannot hand out a usable handle.
-      const hasDirectoryHint = Array.from(dataTransfer.items).some((item) => {
-        const entry = (item as DroppedDirectoryItem).webkitGetAsEntry?.();
-        return entry?.isDirectory;
-      });
-
-      error.value = hasDirectoryHint
-        ? t('fs.browserUnsupported')
-        : t('fs.dropFolder');
       return false;
     } catch (e: any) {
       error.value = e.message;
@@ -561,17 +512,20 @@ export function useFileSystem() {
     }
   }
 
-  /** 根据当前环境选择合适的"打开文件"方式 */
-  async function openFileDialog() {
-    if (env === 'electron') {
-      const client = getClient();
-      const result = await client.openFile();
-      if (result) {
-        await openAndReadFile(result.path);
-      }
-    } else if (env === 'browser') {
-      await openLocalFile();
-    }
+  /** 保存当前工作区打开的标签页状态到 .vibeeditor/workspace.json */
+  async function persistWorkspaceState() {
+    const wsId = store.activeWorkspaceId;
+    if (!wsId) return;
+    try {
+      const tabInfos = store.tabs
+        .filter(t => !t.isUntitled)
+        .map(t => ({ path: t.path }));
+      const activeTabPath = store.activeTab?.isUntitled ? undefined : store.activeTab?.path;
+      await getClient().updateWorkspace(wsId, {
+        openTabs: tabInfos,
+        activeTabPath,
+      });
+    } catch { /* 静默失败 */ }
   }
 
   /**
@@ -740,17 +694,16 @@ export function useFileSystem() {
     env,
     loadDirectory,
     openAndReadFile,
+    openFileAsLightweightWorkspace,
     saveCurrentFile,
     openFolderDialog,
     openDroppedFolder,
     openFileDialog,
-    openLocalFolder,
-    openLocalFile,
-    connectToServer,
+    openWorkspaceAtPath,
+    persistWorkspaceState,
     deleteFile,
     undoDelete,
     createFolder,
-    readDirForPath,
     createFileInDir,
     createDirInPath,
     renameFile,
@@ -763,5 +716,7 @@ export function useFileSystem() {
     showUndoNotification,
     setSaveAsHandler,
     setOnAfterSave,
+    setOpenFolderDialogHandler,
+    setOpenFileDialogHandler,
   };
 }

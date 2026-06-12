@@ -11,8 +11,7 @@
       :env="fs.env"
       :workspace-mode="store.workspaceMode"
       @open-folder="handleOpenFolder"
-      @connect-server="handleConnectServer"
-      @open-local-file="fs.openLocalFile"
+      @open-file="handleOpenFile"
       @save="fs.saveCurrentFile"
       @new-file="store.newUntitled"
       @new-folder="fs.createFolder"
@@ -45,7 +44,29 @@
             :sections="sidebarSections"
           >
             <template v-slot:explorer>
+              <NewFileTree
+                v-if="useNewFileTree"
+                :nodes="store.fileTreeNodes"
+                :workspace-root="store.workspaceRoot"
+                :workspace-mode="store.workspaceMode"
+                :loading="fs.isLoading"
+                :expanded-dirs="expandedDirs"
+                :loading-dirs="loadingDirs"
+                :dir-children="dirChildren"
+                :renaming-path="renamingPath"
+                :creating-in-dir="creatingInDir"
+                :creating-node-key="creatingNodeKey"
+                :clipboard="fs.clipboard"
+                @select-file="fs.openAndReadFile"
+                @expand-dir="handleExpandDir"
+                @delete-file="fs.deleteFile"
+                @menu-action="handleNewMenuAction"
+                @confirm-rename="handleConfirmRename"
+                @confirm-create="handleConfirmCreate"
+                @cancel-create="handleCancelCreate"
+              />
               <FileTree
+                v-else
                 :nodes="store.fileTreeNodes"
                 :workspace-root="store.workspaceRoot"
                 :workspace-mode="store.workspaceMode"
@@ -82,19 +103,26 @@
       </div>
       <div v-if="!sidebarCollapsed" class="resize-handle" @mousedown="startSidebarResize"></div>
       <div class="editor-area">
-        <div class="tabs-bar">
-          <div
+        <n-tabs
+          v-model:value="activeTabValue"
+          type="card"
+          closable
+          tab-style="min-width: 80px; user-select: none;"
+          class="editor-tabs"
+          @close="handleTabClose"
+        >
+          <n-tab-pane
             v-for="tab in store.tabs"
             :key="tab.id"
-            class="tab"
-            :class="{ active: tab.id === store.activeTabId }"
-            @click="store.setActiveTab(tab.id)"
+            :name="tab.id"
+            display-directive="show"
           >
-            <span class="tab-name">{{ tab.name }}</span>
-            <span v-if="tab.isDirty" class="tab-dirty">*</span>
-            <span class="tab-close" @click.stop="store.closeTab(tab.id)">x</span>
-          </div>
-        </div>
+            <template #tab>
+              <span>{{ tab.name }}</span>
+              <span v-if="tab.isDirty" class="tab-dirty-indicator">*</span>
+            </template>
+          </n-tab-pane>
+        </n-tabs>
         <div class="editor-container">
           <ImageViewer
             v-if="store.activeTab && store.activeTab.viewMode === 'image'"
@@ -148,21 +176,18 @@
               <p class="placeholder-title">{{ $t('placeholder.title') }}</p>
               <p class="placeholder-hint">{{ $t('placeholder.hint') }}</p>
               <div v-if="store.fileTreeNodes.length === 0" class="placeholder-actions">
-                <button class="placeholder-btn" @click="fs.openFolderDialog">{{ $t('placeholder.openFolder') }}</button>
-                <button
-                  v-if="fs.env === 'browser' || fs.env === 'server'"
-                  class="placeholder-btn"
-                  @click="fs.connectToServer"
+                <n-button size="medium" @click="handleOpenFolder">
+                  <template #icon><n-icon :component="FolderOpenOutline" /></template>
+                  {{ $t('placeholder.openFolder') }}
+                </n-button>
+                <n-button
+                  v-if="fs.env !== 'electron'"
+                  size="medium"
+                  @click="handleOpenFile"
                 >
-                  {{ $t('placeholder.browseServer') }}
-                </button>
-                <button
-                  v-if="fs.env === 'browser'"
-                  class="placeholder-btn"
-                  @click="fs.openLocalFile"
-                >
+                  <template #icon><n-icon :component="DocumentOutline" /></template>
                   {{ $t('placeholder.openFile') }}
-                </button>
+                </n-button>
               </div>
             </div>
           </div>
@@ -193,6 +218,16 @@
       @cancel="onSaveDialogCancel"
     />
     <AboutDialog :visible="showAboutDialog" @close="showAboutDialog = false" />
+    <OpenFolderDialog
+      v-if="showOpenFolderDialog"
+      @confirm="onOpenFolderConfirm"
+      @cancel="showOpenFolderDialog = false"
+    />
+    <OpenFileDialog
+      v-if="showOpenFileDialog"
+      @confirm="onOpenFileConfirm"
+      @cancel="showOpenFileDialog = false"
+    />
     <div v-if="isDraggingFolder" class="drop-overlay">
       <div class="drop-message">
         <span class="drop-title">{{ $t('dragOverlay.title') }}</span>
@@ -218,8 +253,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed, onMounted, nextTick } from 'vue';
+import { ref, reactive, watch, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { NTabs, NTabPane, NIcon, NButton } from 'naive-ui';
 import { useEditorStore } from '../../stores/editor';
 import { useFileSystem } from '../../composables/useFileSystem';
 import { getEditorInstance } from '../../services/editorInstance';
@@ -228,11 +264,14 @@ import { useWindowResize } from '../../composables/useWindowResize';
 import type { ResizeEdge } from '../../composables/useWindowResize';
 import { useFileTreeContextMenu } from '../../composables/useFileTreeContextMenu';
 import Toolbar from '../toolbar/Toolbar.vue';
+import { webFileLog } from '../../services/logger';
 import ActivityBar from './ActivityBar.vue';
 import type { ActivityItem } from './ActivityBar.vue';
 import SideBar from './SideBar.vue';
 import type { SideBarSection } from './SideBar.vue';
 import FileTree from '../file-tree/FileTree.vue';
+import { NewFileTree } from '../new-file-tree';
+import type { ContextMenuPayload } from '../new-file-tree';
 import SearchPanel from '../SearchPanel.vue';
 import MonacoEditor from '../editor/MonacoEditor.vue';
 import ImageViewer from '../editor/ImageViewer.vue';
@@ -250,6 +289,10 @@ import SettingDropdown from '../settings/SettingDropdown.vue';
 import SaveDialog from '../SaveDialog.vue';
 import StatusBar from '../StatusBar.vue';
 import AboutDialog from './AboutDialog.vue';
+import OpenFolderDialog from '../dialogs/OpenFolderDialog.vue';
+import OpenFileDialog from '../dialogs/OpenFileDialog.vue';
+import { DocumentOutline, SearchOutline, FolderOpenOutline } from '@vicons/ionicons5'
+import { ChatbubblesOutline, HardwareChipOutline } from '@vicons/ionicons5'
 
 const store = useEditorStore();
 const fs = reactive(useFileSystem());
@@ -270,20 +313,81 @@ let dragDepth = 0;
 
 const { renamingPath, creatingInDir, creatingNodeKey, handleContextMenu, handleConfirmRename, handleConfirmCreate, handleCancelCreate } = useFileTreeContextMenu(fs, store, t, { clearDirState, handleExpandDir });
 
+// ===== 文件树切换 =====
+const useNewFileTree = ref(true);
+
+const activeTabValue = computed<string | undefined>({
+  get: () => store.activeTabId ?? undefined,
+  set: (val) => { if (val) store.setActiveTab(val); },
+});
+function handleTabClose(name: string) {
+  store.closeTab(name);
+}
+
+function handleNewMenuAction(action: string, payload: ContextMenuPayload) {
+  switch (action) {
+    case 'open':
+      fs.openAndReadFile(payload.path);
+      break;
+    case 'newFile':
+      creatingInDir.value = { path: payload.path || '', type: 'file' };
+      creatingNodeKey.value++;
+      break;
+    case 'newFolder':
+      creatingInDir.value = { path: payload.path || '', type: 'folder' };
+      creatingNodeKey.value++;
+      break;
+    case 'cut':
+      fs.cutItem(payload.path, payload.type === 'folder', payload.name);
+      break;
+    case 'copy':
+      fs.copyItem(payload.path, payload.type === 'folder', payload.name);
+      break;
+    case 'copyRelativePath':
+      fs.copyPathToClipboard(payload.path);
+      break;
+    case 'copyAbsolutePath': {
+      const root = store.workspaceRoot;
+      const absPath = root && (root.startsWith('/') || /^[A-Z]:[\\/]/i.test(root))
+        ? root.replace(/[\\/]?$/, '/') + payload.path
+        : payload.path;
+      fs.copyPathToClipboard(absPath);
+      break;
+    }
+    case 'paste':
+      fs.pasteItem(payload.path || '');
+      break;
+    case 'rename':
+      renamingPath.value = payload.path;
+      break;
+    case 'delete':
+      fs.deleteFile(payload.path);
+      break;
+    case 'refresh':
+      clearDirState();
+      fs.loadDirectory('.').then(() => {
+        if (store.fileTreeNodes.length > 0 && store.fileTreeNodes[0]?.isDirectory) {
+          handleExpandDir(store.fileTreeNodes[0].path);
+        }
+      });
+      break;
+  }
+}
+
 const isMaximized = ref(false);
 const { startResize, isResizing: isWindowResizing } = useWindowResize();
 
 // ===== 活动栏配置 =====
 const topActivityItems = computed<ActivityItem[]>(() => [
-  { id: 'explorer', label: t('activityBar.explorer'), icon: '🗋' },
-  { id: 'search', label: t('activityBar.search'), icon: '🔍' },
+  { id: 'explorer', label: t('activityBar.explorer'), icon: DocumentOutline },
+  { id: 'search', label: t('activityBar.search'), icon: SearchOutline },
 ]);
 
 const bottomActivityItems = computed<ActivityItem[]>(() => []);
 
 const rightToolbarItems = computed<RightToolbarItem[]>(() => [
-  { id: 'agent', label: t('rightToolbar.agent'), icon: '🤖' },
-  { id: 'mcp', label: t('rightToolbar.mcp'), icon: '🔌' },
+  { id: 'agent', label: t('rightToolbar.agent'), icon: ChatbubblesOutline },
+  { id: 'mcp', label: t('rightToolbar.mcp'), icon: HardwareChipOutline },
 ]);
 
 function onRightToolbarSelect(id: string) {
@@ -341,7 +445,7 @@ function onActivitySelect(id: string) {
     return;
   }
   activeActivity.value = id;
-  const allItems = activityItems.value;
+  const allItems = topActivityItems.value;
   const item = allItems.find(i => i.id === id);
   if (item) {
     activeActivityTitle.value = item.label.replace(/\s*\(.*/, '').toUpperCase();
@@ -377,6 +481,12 @@ const saveDialogDefaultName = ref('');
 const showAboutDialog = ref(false);
 let saveDialogResolver: ((value: string | null) => void) | null = null;
 
+// ===== 打开文件/文件夹对话框状态 =====
+const showOpenFolderDialog = ref(false);
+const showOpenFileDialog = ref(false);
+let openFolderResolver: ((value: string | null) => void) | null = null;
+let openFileResolver: ((value: string | null) => void) | null = null;
+
 // ===== Agent 编辑快照（用于撤销） =====
 const editSnapshots = ref<Map<string, string>>(new Map());
 const lastEditedFiles = ref<string[]>([]);
@@ -396,7 +506,7 @@ async function undoLastEdits() {
           store.saveTab(tab.id);
         }
       } catch (e: any) {
-        console.error('Failed to undo edit for', filePath, e);
+        webFileLog.error(`Failed to undo edit for ${filePath}: ${(e as Error).message}`);
       }
     }
   }
@@ -436,6 +546,33 @@ function onSaveDialogCancel() {
   showSaveDialog.value = false;
   saveDialogResolver?.(null);
   saveDialogResolver = null;
+}
+
+function handleOpenFolderDialog(): Promise<string | null> {
+  return new Promise((resolve) => {
+    openFolderResolver = resolve;
+    showOpenFolderDialog.value = true;
+  });
+}
+
+function handleOpenFileDialog(): Promise<string | null> {
+  return new Promise((resolve) => {
+    openFileResolver = resolve;
+    showOpenFileDialog.value = true;
+  });
+}
+
+function onOpenFolderConfirm(rootPath: string) {
+  showOpenFolderDialog.value = false;
+  clearDirState();
+  openFolderResolver?.(rootPath);
+  openFolderResolver = null;
+}
+
+function onOpenFileConfirm(filePath: string) {
+  showOpenFileDialog.value = false;
+  openFileResolver?.(filePath);
+  openFileResolver = null;
 }
 
 /** 处理工具栏编辑操作（撤销/重做/查找/替换/剪切/复制/粘贴） */
@@ -494,6 +631,8 @@ function handleEditAction(action: string) {
 // 注册回调到 useFileSystem
 fs.setSaveAsHandler(handleSaveFileAs);
 fs.setOnAfterSave(handleAfterSave);
+fs.setOpenFolderDialogHandler(handleOpenFolderDialog);
+fs.setOpenFileDialogHandler(handleOpenFileDialog);
 
 // 文件树节点数量变化时更新侧边栏计数
 watch(() => store.fileTreeNodes.length, (count) => {
@@ -503,6 +642,17 @@ watch(() => store.fileTreeNodes.length, (count) => {
     ];
   }
 });
+
+// 标签页变化时自动持久化到 .vibeeditor/workspace.json
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => [store.tabs.map(t => ({ path: t.path, isUntitled: t.isUntitled })), store.activeTabId],
+  () => {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => fs.persistWorkspaceState(), 300);
+  },
+  { deep: true }
+);
 
 /**
  * 文件保存后的回调：刷新所有已展开目录的内容
@@ -514,10 +664,8 @@ async function handleAfterSave(_savePath: string) {
   const results = await Promise.all(
     dirsToReload.map(async (dir) => {
       try {
-        const entries = await fs.readDirForPath(dir);
-        const displayRoot = dir.startsWith('__root__') ? dir.slice(8) : dir;
-        const resolved = entries.map((e: any) => ({ ...e, path: displayRoot.replace(/\/$/, '') + '/' + e.path }));
-        return { dir, entries: resolved };
+        const entries = await fs.client.readDir(dir);
+        return { dir, entries };
       } catch {
         return { dir, entries: null };
       }
@@ -555,9 +703,9 @@ async function handleOpenFolder() {
 }
 
 /** 连接到服务端并重置文件树状态 */
-async function handleConnectServer() {
+async function handleOpenFile() {
   clearDirState();
-  await fs.connectToServer();
+  await fs.openFileDialog();
 }
 
 function isFileDrag(dataTransfer: DataTransfer | null): boolean {
@@ -598,7 +746,13 @@ async function handleDrop(e: DragEvent) {
   resetDragState();
 
   const opened = await fs.openDroppedFolder(dataTransfer);
-  if (!opened) return;
+  if (!opened) {
+    if (fs.error) {
+      // 用临时通知展示错误（如 Server 模式不支持拖放）
+      alert(fs.error);
+    }
+    return;
+  }
 
   activeActivity.value = 'explorer';
   activeActivityTitle.value = t('sidebar.explorer');
@@ -625,11 +779,8 @@ async function handleExpandDir(dirPath: string) {
 
   loadingDirs.value = new Set([...loadingDirs.value, dirPath]);
   try {
-    const entries = await fs.readDirForPath(dirPath);
-    // 多工作区：子条目路径拼接完整前缀（去除 __root__ 后拼接），保证 resolveClient 能匹配
-    const displayRoot = dirPath.startsWith('__root__') ? dirPath.slice(8) : dirPath;
-    const resolved = entries.map((e: any) => ({ ...e, path: displayRoot.replace(/\/$/, '') + '/' + e.path }));
-    dirChildren.value = { ...dirChildren.value, [dirPath]: resolved };
+    const entries = await fs.client.readDir(dirPath);
+    dirChildren.value = { ...dirChildren.value, [dirPath]: entries };
   } catch { /* 忽略读取失败 */ }
   loadingDirs.value = new Set([...loadingDirs.value].filter(d => d !== dirPath));
 }
@@ -652,11 +803,8 @@ onMounted(async () => {
         case 'open-folder':
           handleOpenFolder();
           break;
-        case 'connect-server':
-          handleConnectServer();
-          break;
-        case 'open-local-file':
-          fs.openLocalFile();
+        case 'open-file':
+          handleOpenFile();
           break;
         case 'save':
           fs.saveCurrentFile();
@@ -771,18 +919,10 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 
       await fs.client.writeFile(resolvedPath, edit.content);
 
-      // 更新已打开的标签页：精确匹配 + 后缀模糊匹配
-      let tab = store.tabs.find(t => t.path === resolvedPath);
-      if (!tab) tab = store.tabs.find(t => t.path.endsWith('/' + edit.path) || t.path.endsWith('\\' + edit.path));
-      if (!tab && resolvedPath === edit.path) tab = store.tabs.find(t => t.path.endsWith(edit.path));
-      if (tab) {
-        store.updateContent(tab.id, edit.content);
-        store.saveTab(tab.id);
-      } else {
-        // 文件未打开，自动打开并标记为已保存
-        store.openFile(resolvedPath, edit.content);
-        store.saveTab(store.activeTabId!);
-      }
+      // openFile 内部使用 pathsMatch 处理相对/绝对路径混用，不会创建重复标签
+      store.openFile(resolvedPath, edit.content);
+      store.updateContent(store.activeTabId!, edit.content);
+      store.saveTab(store.activeTabId!);
 
       // 刷新文件树以反映变化
       if (store.fileTreeNodes.length > 0) {
@@ -792,6 +932,9 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
       fs.error = `Edit failed: ${edit.path} - ${e.message}`;
     }
   }
+
+  // 持久化标签页状态（Agent 编辑可能打开或更新了标签页）
+  fs.persistWorkspaceState();
 }
 </script>
 
@@ -830,42 +973,29 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
   flex-direction: column;
   overflow: hidden;
 }
-.tabs-bar {
-  display: flex;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
-  overflow-x: auto;
+.editor-tabs {
   flex-shrink: 0;
-}
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-right: 1px solid var(--border-color);
-  white-space: nowrap;
   user-select: none;
 }
-.tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+.editor-tabs :deep(.n-tabs-pane-wrapper) {
+  display: none;
 }
-.tab:hover {
+.editor-tabs :deep(.n-tabs-nav) {
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+.editor-tabs :deep(.n-tabs-tab) {
+  background: transparent;
+  border-right: 1px solid var(--border-color);
+}
+.editor-tabs :deep(.n-tabs-tab--active) {
+  background: var(--bg-primary);
+}
+.editor-tabs :deep(.n-tabs-tab:hover) {
   background: var(--bg-hover);
 }
-.tab-dirty {
+.tab-dirty-indicator {
   color: var(--accent-color);
-}
-.tab-close {
-  font-size: 12px;
-  opacity: 0.6;
-}
-.tab-close:hover {
-  opacity: 1;
-  color: #f44747;
 }
 .editor-container {
   flex: 1;
@@ -879,6 +1009,7 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 }
 .placeholder-content {
   text-align: center;
+  user-select: none;
 }
 .placeholder-title {
   font-size: 28px;
@@ -895,19 +1026,6 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
   display: flex;
   gap: 8px;
   justify-content: center;
-}
-.placeholder-btn {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 8px 16px;
-  font-size: 13px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.placeholder-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent-color);
 }
 .drop-overlay {
   position: fixed;

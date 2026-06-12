@@ -1,14 +1,25 @@
 import type { ITool } from './types/tool';
+import { createLogger } from './logger';
+
+const log = createLogger('ToolRegistry');
 
 export class ToolRegistry {
   private tools: Map<string, ITool> = new Map();
 
   register(tool: ITool): void {
+    const replaced = this.tools.has(tool.name);
     this.tools.set(tool.name, tool);
+    if (replaced) {
+      log.info(`Replaced tool: ${tool.name}`);
+    }
   }
 
   get(name: string): ITool | undefined {
-    return this.tools.get(name);
+    const tool = this.tools.get(name);
+    if (!tool) {
+      log.warn(`Tool not found: "${name}" (available: ${Array.from(this.tools.keys()).join(', ')})`);
+    }
+    return tool;
   }
 
   has(name: string): boolean {

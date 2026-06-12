@@ -79,7 +79,7 @@ function createInMemoryServer(): { clientTransport: InMemoryTransport; dispose: 
 
 /** 使用给定 transport 执行标准测试流程 */
 async function runTests(name: string, client: MCPClient, dispose: () => Promise<void>): Promise<void> {
-  const noopCtx = { fs: null as any };
+  const noopCtx = { workspaceRoot: process.cwd() };
 
   try {
     console.log(`  initialize...`);
@@ -217,7 +217,7 @@ for line in sys.stdin:
     console.log(`  → ${defs.map(d => d.name).join(', ')}`);
 
     const adapters = pyClient.createToolAdapters();
-    const noopCtx = { fs: null as any };
+    const noopCtx = { workspaceRoot: process.cwd() };
 
     console.log(`  execute echo(message=World)...`);
     const r = await adapters[0].execute({ message: 'World' }, noopCtx);

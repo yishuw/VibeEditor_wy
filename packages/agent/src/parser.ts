@@ -52,9 +52,11 @@ function isPlaceholderPath(p: string): boolean {
 
 /**
  * 从 LLM 回复中解析 <edit path="...">...</edit> 编辑块
+ *
+ * 相同路径的编辑块会去重，保留最后一个（后面的覆盖前面的）。
  */
 export function parseEditsFromText(text: string): ParsedEdit[] {
-  const edits: ParsedEdit[] = [];
+  const editMap = new Map<string, ParsedEdit>();
   const re = /<edit\s+path="([^"]+)"\s*>([\s\S]*?)<\/edit>/g;
   let match: RegExpExecArray | null;
 
@@ -69,8 +71,10 @@ export function parseEditsFromText(text: string): ParsedEdit[] {
       rawContent = codeBlockMatch[1];
     }
 
-    edits.push({ path: filePath, content: rawContent });
+    // 按规范化路径去重（Windows 不区分大小写）
+    const key = process.platform === 'win32' ? filePath.toLowerCase() : filePath;
+    editMap.set(key, { path: filePath, content: rawContent });
   }
 
-  return edits;
+  return Array.from(editMap.values());
 }
