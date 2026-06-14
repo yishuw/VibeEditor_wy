@@ -12,6 +12,10 @@ export default {
     hideSidebar: '隐藏侧边栏',
     file: '文件',
     edit: '编辑',
+    view: '视图',
+    explorer: '资源管理器',
+    search: '搜索',
+    settings: '设置',
     newFile: '新建文件',
     newFileShort: 'Ctrl+N',
     newFolder: '新建文件夹',
@@ -62,6 +66,9 @@ export default {
   settings: {
     language: '语言',
     theme: '主题',
+    general: '通用',
+    aiModel: 'AI 模型',
+    mcpServer: 'MCP 服务器',
   },
   placeholder: {
     title: 'VibeEditor',

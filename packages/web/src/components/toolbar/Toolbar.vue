@@ -16,6 +16,12 @@
           <n-icon size="10" :component="ChevronDown" />
         </n-button>
       </n-dropdown>
+      <n-dropdown trigger="hover" :options="viewOptions" @select="handleViewSelect">
+        <n-button quaternary size="small" class="dropdown-trigger-btn">
+          {{ $t('toolbar.view') }}
+          <n-icon size="10" :component="ChevronDown" />
+        </n-button>
+      </n-dropdown>
       <n-dropdown trigger="hover" :options="editOptions" @select="handleEditSelect">
         <n-button quaternary size="small" class="dropdown-trigger-btn">
           {{ $t('toolbar.edit') }}
@@ -37,6 +43,14 @@
       <n-tag v-if="workspaceMode" size="small" :bordered="false" class="toolbar-badge">
         {{ workspaceMode.toUpperCase() }}
       </n-tag>
+      <n-button
+        quaternary
+        size="small"
+        :title="$t('toolbar.settings')"
+        @click="$emit('open-settings')"
+      >
+        <template #icon><n-icon size="18" :component="SettingsOutline" /></template>
+      </n-button>
       <div v-if="env === 'electron'" class="window-controls">
         <button class="win-btn win-minimize" title="Minimize" @click="handleMinimize">
           <svg width="10" height="10" viewBox="0 0 10 10"><rect y="4" width="10" height="1" fill="currentColor"/></svg>
@@ -65,7 +79,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NIcon, NDropdown, NTag } from 'naive-ui'
-import { MenuOutline, ChevronDown } from '@vicons/ionicons5'
+import { MenuOutline, ChevronDown, SettingsOutline } from '@vicons/ionicons5'
 import { useEditorStore, type WorkspaceMode } from '../../stores/editor'
 
 const store = useEditorStore()
@@ -84,6 +98,9 @@ const emit = defineEmits<{
   'new-file': []
   'new-folder': []
   'toggle-sidebar': []
+  'show-explorer': []
+  'show-search': []
+  'open-settings': []
   'edit-cut': []
   'edit-copy': []
   'edit-paste': []
@@ -118,6 +135,11 @@ const fileOptions = computed(() => {
   ]
 })
 
+const viewOptions = computed(() => [
+  { label: t('toolbar.explorer'), key: 'show-explorer' },
+  { label: t('toolbar.search'), key: 'show-search' },
+])
+
 const editOptions = computed(() => [
   { label: t('toolbar.cut'), key: 'edit-cut' },
   { label: t('toolbar.copy'), key: 'edit-copy' },
@@ -135,6 +157,9 @@ const helpOptions = computed(() => [
 ])
 
 function handleFileSelect(key: string) {
+  emit(key as any)
+}
+function handleViewSelect(key: string) {
   emit(key as any)
 }
 function handleEditSelect(key: string) {
