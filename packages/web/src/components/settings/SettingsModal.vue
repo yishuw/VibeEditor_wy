@@ -11,9 +11,7 @@
         direction="horizontal"
         :size="menuWidth + 'px'"
         min="120px"
-        max="400px"
-        :resize-trigger-size="4"
-        @update:size="(v: string) => menuWidth = parseInt(v)"
+        :resize-trigger-size="0"
       >
         <template #1>
           <div class="settings-menu">
@@ -39,14 +37,14 @@
         </template>
       </n-split>
 
-      <div class="resize-handle resize-n" @mousedown="startModalResize('n', $event)"></div>
-      <div class="resize-handle resize-s" @mousedown="startModalResize('s', $event)"></div>
-      <div class="resize-handle resize-e" @mousedown="startModalResize('e', $event)"></div>
-      <div class="resize-handle resize-w" @mousedown="startModalResize('w', $event)"></div>
-      <div class="resize-handle resize-ne" @mousedown="startModalResize('ne', $event)"></div>
-      <div class="resize-handle resize-nw" @mousedown="startModalResize('nw', $event)"></div>
-      <div class="resize-handle resize-se" @mousedown="startModalResize('se', $event)"></div>
-      <div class="resize-handle resize-sw" @mousedown="startModalResize('sw', $event)"></div>
+      <div class="resize-handle resize-n"    :style="nStyle"    @mousedown="startModalResize('n', $event)"></div>
+      <div class="resize-handle resize-s"    @mousedown="startModalResize('s', $event)"></div>
+      <div class="resize-handle resize-e"    :style="eStyle"    @mousedown="startModalResize('e', $event)"></div>
+      <div class="resize-handle resize-w"    :style="wStyle"    @mousedown="startModalResize('w', $event)"></div>
+      <div class="resize-handle resize-ne"   :style="neStyle"   @mousedown="startModalResize('ne', $event)"></div>
+      <div class="resize-handle resize-nw"   :style="nwStyle"   @mousedown="startModalResize('nw', $event)"></div>
+      <div class="resize-handle resize-se"   @mousedown="startModalResize('se', $event)"></div>
+      <div class="resize-handle resize-sw"   @mousedown="startModalResize('sw', $event)"></div>
     </div>
   </n-modal>
 </template>
@@ -127,17 +125,48 @@ const modalStyle = computed(() => ({
   height: modalHeight.value + 'px',
 }))
 
+const headerHeight = ref(44)
+
+const nStyle = computed(() => ({
+  top: `-${headerHeight.value}px`,
+}))
+
+const eStyle = computed(() => ({
+  top: `-${headerHeight.value}px`,
+}))
+
+const wStyle = computed(() => ({
+  top: `-${headerHeight.value}px`,
+}))
+
+const neStyle = computed(() => ({
+  top: `-${headerHeight.value}px`,
+}))
+
+const nwStyle = computed(() => ({
+  top: `-${headerHeight.value}px`,
+}))
+
 function updateContainerMargins() {
   const el = containerRef.value
   if (!el) return
-  const card = el.closest('.n-card__content') as HTMLElement | null
-  if (!card) return
-  const s = getComputedStyle(card)
+  const cardContent = el.closest('.n-card__content') as HTMLElement | null
+  if (!cardContent) return
+
+  const s = getComputedStyle(cardContent)
   containerStyle.value = {
     marginTop: `-${s.paddingTop}`,
     marginRight: `-${s.paddingRight}`,
     marginBottom: `-${s.paddingBottom}`,
     marginLeft: `-${s.paddingLeft}`,
+  }
+
+  const card = cardContent.closest('.n-card') as HTMLElement | null
+  if (card) {
+    const header = card.querySelector(':scope > .n-card-header') as HTMLElement | null
+    if (header) {
+      headerHeight.value = header.offsetHeight
+    }
   }
 }
 
@@ -202,6 +231,7 @@ function startModalResize(edge: ResizeEdge, e: MouseEvent) {
 .settings-content {
   min-width: 0;
   padding-left: 20px;
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -226,16 +256,21 @@ function startModalResize(edge: ResizeEdge, e: MouseEvent) {
   background: rgba(128, 128, 128, 0.3);
 }
 
-.resize-n { top: 0; left: 0; right: 0; height: 4px; cursor: ns-resize; }
-.resize-s { bottom: 0; left: 0; right: 0; height: 4px; cursor: ns-resize; }
-.resize-e { top: 0; right: 0; bottom: 0; width: 4px; cursor: ew-resize; }
-.resize-w { top: 0; left: 0; bottom: 0; width: 4px; cursor: ew-resize; }
+.resize-n { left: 0; right: 0; height: 8px; cursor: ns-resize; }
+.resize-s { bottom: 0; left: 0; right: 0; height: 8px; cursor: ns-resize; }
+.resize-e { right: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+.resize-w { left: 0; bottom: 0; width: 8px; cursor: ew-resize; }
 
-.resize-ne, .resize-nw, .resize-se, .resize-sw {
+.resize-ne,
+.resize-nw,
+.resize-se,
+.resize-sw {
   z-index: 11;
+  width: 12px;
+  height: 12px;
 }
-.resize-ne { top: 0; right: 0; width: 8px; height: 8px; cursor: nesw-resize; }
-.resize-nw { top: 0; left: 0; width: 8px; height: 8px; cursor: nwse-resize; }
-.resize-se { bottom: 0; right: 0; width: 8px; height: 8px; cursor: nwse-resize; }
-.resize-sw { bottom: 0; left: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+.resize-ne { right: 0; cursor: nesw-resize; }
+.resize-nw { left: 0; cursor: nwse-resize; }
+.resize-se { bottom: 0; right: 0; cursor: nwse-resize; }
+.resize-sw { bottom: 0; left: 0; cursor: nesw-resize; }
 </style>
