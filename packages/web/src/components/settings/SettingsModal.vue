@@ -7,35 +7,37 @@
     @after-leave="$emit('close')"
   >
     <div ref="containerRef" class="modal-resize-container" :style="containerStyle">
-      <n-split
-        direction="horizontal"
-        :size="menuWidth + 'px'"
-        min="120px"
-        :resize-trigger-size="0"
-      >
-        <template #1>
-          <div class="settings-menu">
-            <n-menu
-              v-model:value="activeTab"
-              :options="menuOptions"
-              @update:value="onTabChange"
-            />
-          </div>
-        </template>
-        <template #2>
-          <div class="settings-content">
-            <GeneralSettings v-if="activeTab === 'general'" />
-            <div v-else-if="activeTab === 'ai'" class="settings-section">
-              <h3 class="section-title">{{ $t('settings.aiModel') }}</h3>
-              <ProviderSettingsSection ref="providerSectionRef" />
+      <div class="split-wrapper">
+        <n-split
+          direction="horizontal"
+          :size="menuWidth + 'px'"
+          min="120px"
+          :resize-trigger-size="0"
+        >
+          <template #1>
+            <div class="settings-menu">
+              <n-menu
+                v-model:value="activeTab"
+                :options="menuOptions"
+                @update:value="onTabChange"
+              />
             </div>
-            <div v-else-if="activeTab === 'mcp'" class="settings-section">
-              <h3 class="section-title">{{ $t('settings.mcpServer') }}</h3>
-              <McpSettingsContent />
+          </template>
+          <template #2>
+            <div class="settings-content">
+              <GeneralSettings v-if="activeTab === 'general'" />
+              <div v-else-if="activeTab === 'ai'" class="settings-section">
+                <h3 class="section-title">{{ $t('settings.aiModel') }}</h3>
+                <ProviderSettingsSection ref="providerSectionRef" />
+              </div>
+              <div v-else-if="activeTab === 'mcp'" class="settings-section">
+                <h3 class="section-title">{{ $t('settings.mcpServer') }}</h3>
+                <McpSettingsContent />
+              </div>
             </div>
-          </div>
-        </template>
-      </n-split>
+          </template>
+        </n-split>
+      </div>
 
       <div class="resize-handle resize-n"    :style="nStyle"    @mousedown="startModalResize('n', $event)"></div>
       <div class="resize-handle resize-s"    @mousedown="startModalResize('s', $event)"></div>
@@ -221,6 +223,18 @@ function startModalResize(edge: ResizeEdge, e: MouseEvent) {
   flex-direction: column;
 }
 
+.split-wrapper {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+}
+.split-wrapper :deep(.n-split) {
+  height: 100%;
+}
+
 .settings-menu {
   height: 100%;
 }
@@ -233,10 +247,6 @@ function startModalResize(edge: ResizeEdge, e: MouseEvent) {
   padding-left: 20px;
   height: 100%;
   overflow-y: auto;
-}
-
-.settings-section {
-  min-height: 200px;
 }
 
 .section-title {

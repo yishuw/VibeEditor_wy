@@ -293,9 +293,6 @@ defineExpose({ init })
 </script>
 
 <style scoped>
-.provider-section {
-  min-height: 200px;
-}
 .empty-state {
   text-align: center;
   padding: 20px 0;
