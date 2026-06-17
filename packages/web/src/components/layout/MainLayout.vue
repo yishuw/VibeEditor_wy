@@ -1279,7 +1279,6 @@ async function handleApplyEdits(edits: ParsedEdit[]) {
 .resize-handle {
   width: 4px;
   cursor: col-resize;
-  background: var(--border-color);
   flex-shrink: 0;
 }
 .resize-handle:hover {
